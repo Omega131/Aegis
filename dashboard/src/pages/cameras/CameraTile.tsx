@@ -22,11 +22,11 @@ export const CameraTile: React.FC<CameraTileProps> = ({
       return
     }
 
-    // Step 2: Set up 500 ms timer to update query param for live JPEG streaming
+    // Step 2: Set up 1200 ms timer to update query param for live JPEG streaming (smooth without network choking)
     const intervalId = setInterval(() => {
       setFrameTimestamp(Date.now())
       setHasImageError(false)
-    }, 500)
+    }, 1200)
 
     return () => clearInterval(intervalId)
   }, [camera.status])
@@ -124,7 +124,7 @@ export const CameraTile: React.FC<CameraTileProps> = ({
 
         {/* Viewport Telemetry HUD */}
         <div className="viewport-hud">
-          {camera.status === 'running' ? '16 FPS // YUNET' : camera.status.toUpperCase()}
+          {camera.status === 'running' ? 'LIVE // YUNET' : camera.status.toUpperCase()}
         </div>
       </div>
 

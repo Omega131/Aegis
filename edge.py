@@ -73,8 +73,9 @@ TEST_VIDEO_FALLBACK = os.path.join(BASE_DIR, "test_video.mp4")
 # Rate limit for emitting 'face_blurred' events in seconds (prevents event flood)
 FACE_EVENT_RATE_LIMIT = 3.0
 
-# Simulated camera loop frame interval (0.06 seconds ~= 16 FPS)
-FRAME_INTERVAL_SECONDS = 0.06
+# Simulated camera loop frame interval (0.20 seconds ~= 5 FPS)
+# Tuned to prevent CPU saturation while maintaining smooth live surveillance
+FRAME_INTERVAL_SECONDS = float(os.getenv("FRAME_INTERVAL_SECONDS", "0.20"))
 
 # -----------------------------------------------------------------------------
 # Privacy Blurring Tuning Constants
@@ -986,6 +987,10 @@ class CameraNode:
         # Pre-populate initial blurred frame buffer so the node is immediately healthy on launch
         self.latest_frame = self._generate_synthetic_frame()
         self.last_frame_time = time.time()
+        self.latest_jpeg_bytes: bytes | None = None
+        if self.latest_frame is not None:
+            _, init_buf = cv2.imencode(".jpg", self.latest_frame)
+            self.latest_jpeg_bytes = init_buf.tobytes()
 
         print(f"[NODE-INIT] CameraNode created: {self.camera_id}")
 
@@ -1126,12 +1131,7 @@ class CameraNode:
         Thread-safe. Never exposes raw unblurred video.
         """
         with self._lock:
-            if self.latest_frame is None:
-                return None
-            success, encoded_jpg = cv2.imencode(".jpg", self.latest_frame)
-            if success:
-                return encoded_jpg.tobytes()
-            return None
+            return self.latest_jpeg_bytes
 
     def _generate_synthetic_frame(self) -> np.ndarray:
         """
@@ -1273,10 +1273,13 @@ class CameraNode:
                     with self._lock:
                         self.last_event = "camera_recovered"
 
-                # Step 8: Update latest BLURRED frame in memory (raw faces are never exposed)
+                # Step 8: Update latest BLURRED frame and cached JPEG in memory (raw faces are never exposed)
                 with self._lock:
                     self.latest_frame = blurred_frame
                     self.last_frame_time = time.time()
+                    enc_ok, enc_jpg = cv2.imencode(".jpg", blurred_frame)
+                    if enc_ok:
+                        self.latest_jpeg_bytes = enc_jpg.tobytes()
 
                 # Step 9: Regulate loop frame rate to avoid excessive CPU usage
                 time.sleep(FRAME_INTERVAL_SECONDS)
