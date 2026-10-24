@@ -4,7 +4,11 @@
  * to the unified FastAPI backend.
  */
 
-export const API_BASE = (import.meta.env.VITE_API_URL as string) || 'http://localhost:8000';
+export const API_BASE =
+  (import.meta.env.VITE_API_URL as string) ||
+  (typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : 'http://127.0.0.1:8000');
 
 export interface SystemHealth {
   status: string;
@@ -34,6 +38,9 @@ export interface CameraNode {
   fps: number;
   storage_encrypted_crops: number;
   window_id: string;
+  health?: string;
+  last_event?: string;
+  faces_blurred_count?: number;
 }
 
 export interface CameraEvent {
@@ -158,8 +165,16 @@ export const api = {
     return request<any>(`/api/cameras/${cameraId}/simulate/recover`, { method: 'POST' });
   },
 
+  async recoverAllCameras(): Promise<any> {
+    return request<any>('/api/cameras/recover-all', { method: 'POST' });
+  },
+
   getCameraFrameUrl(cameraId: string): string {
     return `${API_BASE}/api/cameras/${cameraId}/frame`;
+  },
+
+  getCameraStreamUrl(cameraId: string): string {
+    return `${API_BASE}/api/cameras/${cameraId}/stream`;
   },
 
   // 3. Decoy & Gateway Subsystem

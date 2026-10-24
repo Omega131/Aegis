@@ -12,12 +12,14 @@ from datetime import datetime
 import hashlib
 import os
 import threading
+import sys
 import time
 from typing import Any
 import urllib.request
 
 # FastAPI router and HTTP utilities
 from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi.responses import StreamingResponse
 
 # Cryptography for authenticated symmetric encryption (AES-256-GCM)
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -998,6 +1000,12 @@ class CameraNode:
             if anomaly in ("recover", "reset", "normal"):
                 self._simulation_override = None
                 self._frozen_frame_cache = None
+                if hasattr(self, "anomaly_state") and isinstance(self.anomaly_state, dict):
+                    self.anomaly_state["last_state"] = "normal"
+                    self.anomaly_state["frozen_count"] = 0
+                if hasattr(self, "brightness_history") and hasattr(self.brightness_history, "clear"):
+                    self.brightness_history.clear()
+                self.last_event = "camera_recovered"
                 print(f"[DRILL] Reset simulation override on {self.camera_id}. Returning to normal feed.")
             elif anomaly == "blind":
                 self._simulation_override = "blind"
@@ -1193,7 +1201,10 @@ class CameraNode:
         try:
             # Each node opens its own capture instance of self.video_source
             try:
-                cap = cv2.VideoCapture(self.video_source)
+                if isinstance(self.video_source, int) and sys.platform.startswith("win"):
+                    cap = cv2.VideoCapture(self.video_source, cv2.CAP_DSHOW)
+                else:
+                    cap = cv2.VideoCapture(self.video_source)
                 if not cap.isOpened():
                     print(f"[NODE-WARN] {self.camera_id} could not open source '{self.video_source}'. Using synthetic feed.")
             except Exception as exc:
@@ -1461,6 +1472,36 @@ def get_camera_frame(camera_id: str) -> Response:
             detail=f"Camera '{camera_id}' not found or no frame available yet.",
         )
     return Response(content=jpeg_bytes, media_type="image/jpeg")
+
+
+@router.get("/{camera_id}/stream")
+def stream_camera(camera_id: str):
+    """
+    GET /api/cameras/{camera_id}/stream
+    Streams real-time MJPEG blurred video feed.
+    """
+    def iter_frames():
+        while True:
+            jpeg = EDGE_MESH.get_latest_jpeg(camera_id)
+            if jpeg:
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n")
+            time.sleep(0.04)
+
+    return StreamingResponse(
+        iter_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@router.post("/recover-all")
+def recover_all_cameras() -> dict[str, Any]:
+    """
+    POST /api/cameras/recover-all
+    Resets all camera nodes back to normal feed, clearing any simulation overrides.
+    """
+    for node in EDGE_MESH.nodes.values():
+        node.simulate_anomaly("recover")
+    return {"status": "ok", "message": "All camera nodes recovered to normal."}
 
 
 @router.post("/start")

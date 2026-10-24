@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { Badge } from '../ui/Badge';
+import { api } from '../../api/client';
 
 export const DeviceInspectorDrawer: React.FC = () => {
   const {
@@ -77,6 +78,16 @@ export const DeviceInspectorDrawer: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Encrypted Face Crops:</span>
                   <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-review)' }}>AES-256-GCM Vault</span>
+                </div>
+                <div style={{ marginTop: '0.75rem', position: 'relative', width: '100%', height: '140px', background: '#050811', borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-production)' }}>
+                  <img
+                    src={api.getCameraFrameUrl('cam_01')}
+                    alt="Live Camera Snapshot"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                  <div style={{ position: 'absolute', bottom: '6px', left: '6px', background: 'rgba(8,13,27,0.85)', padding: '2px 6px', borderRadius: '2px', fontSize: '0.65rem', color: 'var(--accent-production)', fontFamily: 'var(--font-mono)' }}>
+                    ● LIVE EDGE BLUR
+                  </div>
                 </div>
               </>
             )}
