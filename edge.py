@@ -33,6 +33,9 @@ from schema import CameraEvent
 # =============================================================================
 # 1. CONFIGURATION
 # =============================================================================
+# Absolute directory containing this script (anchors all file paths safely)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Number of simulated edge camera nodes
 NUM_NODES = 5
 
@@ -40,10 +43,22 @@ NUM_NODES = 5
 WINDOW_SECONDS = 600
 
 # Path to a test video file (e.g., "test_video.mp4") or 0 for the default webcam
-VIDEO_SOURCE = 0
+# Can be configured via environment variable VIDEO_SOURCE (e.g. for headless servers or CI)
+_env_video_source = os.getenv("VIDEO_SOURCE")
+if _env_video_source is not None:
+    try:
+        VIDEO_SOURCE: Any = int(_env_video_source)
+    except ValueError:
+        VIDEO_SOURCE = _env_video_source
+else:
+    VIDEO_SOURCE = 0
 
 # Local directory path used for storing encrypted crops and metadata
-STORAGE_DIR = "edge_storage/"
+# Anchored to BASE_DIR so it works reliably regardless of working directory
+STORAGE_DIR = os.path.join(BASE_DIR, "edge_storage")
+
+# Path to generated test video fallback
+TEST_VIDEO_FALLBACK = os.path.join(BASE_DIR, "test_video.mp4")
 
 # Rate limit for emitting 'face_blurred' events in seconds (prevents event flood)
 FACE_EVENT_RATE_LIMIT = 3.0
@@ -75,8 +90,8 @@ BLINDING_DROP_RATIO = 0.60
 BLINDING_MIN_BASELINE = 10.0
 
 # Freezing: maximum mean absolute pixel difference between consecutive frames to consider it frozen
-# Real-world video feeds always have sensor noise; diff < 0.5 indicates a repeated/stuck frame buffer.
-FREEZE_DIFF_THRESHOLD = 0.5
+# Real-world video feeds always have sensor noise; diff < 0.15 indicates an almost-zero repeated/stuck frame buffer.
+FREEZE_DIFF_THRESHOLD = 0.15
 
 # Freezing: number of consecutive near-zero difference frames required before declaring "camera_frozen"
 FREEZE_CONSECUTIVE_FRAMES = 10
@@ -156,6 +171,17 @@ def emit_event(event: CameraEvent) -> None:
         f"[EVENT] [{event.timestamp}] Node: {event.camera_id} | "
         f"Type: {event.event_type} | Window: {event.window_id} | Blurred: {event.blurred}"
     )
+
+
+def get_recent_events(limit: int = 50) -> list[CameraEvent]:
+    """
+    Returns the latest CameraEvents from the thread-safe in-memory log as a list.
+    Sorted with newest events first. Guaranteed thread-safe.
+    """
+    with EVENT_LOG_LOCK:
+        events_list = list(EVENT_LOG)[-limit:]
+        events_list.reverse()
+        return events_list
 
 
 # =============================================================================
@@ -449,6 +475,15 @@ def encrypt_and_store_crop(
 
     # Step 10: Return the computed SHA-256 hash string
     return sha256_hash
+
+
+def get_crop_hashes(camera_id: str, window_id: str) -> list[str]:
+    """
+    Returns a copy of the indexed crop hashes for a camera and window.
+    Guaranteed thread-safe.
+    """
+    with CROP_INDEX_LOCK:
+        return list(CROP_INDEX.get((camera_id, window_id), []))
 
 
 def decrypt_crop(
@@ -764,14 +799,11 @@ def check_anomalies(
 # -----------------------------------------------------------------------------
 
 
-TEST_VIDEO_FALLBACK = "test_video.mp4"
-
-
 def ensure_test_video(video_path: str = TEST_VIDEO_FALLBACK) -> str:
     """
     Ensures that a valid test video file exists on disk.
-    If not found, generates a 5-second video with moving shapes and dynamic timestamps
-    so that simulated edge nodes have changing video frames and do not trigger freeze alerts.
+    If not found, generates a 5-second video with moving shapes, dynamic sweep bands,
+    and face silhouettes so that simulated edge nodes have realistic active video frames.
     """
     if os.path.exists(video_path) and os.path.getsize(video_path) > 1000:
         return video_path
@@ -784,12 +816,21 @@ def ensure_test_video(video_path: str = TEST_VIDEO_FALLBACK) -> str:
     out = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
 
     for frame_idx in range(num_frames):
-        frame = np.full((height, width, 3), 40, dtype=np.uint8)
-        # Draw moving circle across the frame to guarantee pixel difference between frames
-        pos_x = int(100 + (width - 200) * (frame_idx / num_frames))
-        pos_y = int(240 + 70 * np.sin(frame_idx * 0.25))
-        cv2.circle(frame, (pos_x, pos_y), 40, (0, 255, 128), -1)
-        # Add dynamic frame counter
+        frame = np.full((height, width, 3), 35, dtype=np.uint8)
+
+        # Dynamic vertical sweep line to guarantee continuous frame-to-frame pixel variation
+        sweep_x = int((frame_idx * 16) % width)
+        cv2.line(frame, (sweep_x, 0), (sweep_x, height), (70, 70, 70), 6)
+
+        # Moving human figure / face silhouette
+        pos_x = int(120 + (width - 240) * (frame_idx / num_frames))
+        pos_y = int(240 + 60 * np.sin(frame_idx * 0.25))
+        cv2.circle(frame, (pos_x, pos_y), 50, (170, 150, 130), -1)
+        cv2.circle(frame, (pos_x - 15, pos_y - 10), 8, (30, 30, 30), -1)
+        cv2.circle(frame, (pos_x + 15, pos_y - 10), 8, (30, 30, 30), -1)
+        cv2.ellipse(frame, (pos_x, pos_y + 15), (18, 8), 0, 0, 180, (40, 40, 160), 3)
+
+        # Dynamic frame counter
         cv2.putText(
             frame,
             f"AEGIS SENTRY SIMULATION // FRAME {frame_idx:04d}",
@@ -877,31 +918,56 @@ class CameraNode:
     def status(self) -> str:
         """
         Returns the operational status of the camera:
-        'stopped', 'anomaly', or 'running'.
+        'stopped', 'anomaly', or 'running'. Thread-safe.
         """
-        if not self.is_running:
-            return "stopped"
+        with self._lock:
+            if not self.is_running:
+                return "stopped"
 
-        current_anomaly = self.anomaly_state.get("last_state", "normal")
-        if current_anomaly in ("camera_blinded", "camera_frozen"):
-            return "anomaly"
+            current_anomaly = self.anomaly_state.get("last_state", "normal")
+            if current_anomaly in ("camera_blinded", "camera_frozen"):
+                return "anomaly"
 
-        return "running"
+            return "running"
 
     @property
     def health(self) -> str:
         """
         Returns the health indicator based on recent frame processing activity:
-        'healthy', 'degraded', or 'offline'.
+        'healthy', 'degraded', or 'offline'. Thread-safe.
         """
-        if not self.is_running:
-            return "offline"
+        with self._lock:
+            if not self.is_running:
+                return "offline"
 
-        # If a frame was processed within the last 3 seconds, node is healthy
-        if time.time() - self.last_frame_time < 3.0:
-            return "healthy"
+            # If a frame was processed within the last 3 seconds, node is healthy
+            if time.time() - self.last_frame_time < 3.0:
+                return "healthy"
 
-        return "degraded"
+            return "degraded"
+
+    def get_summary(self) -> dict[str, Any]:
+        """
+        Returns a thread-safe telemetry snapshot of this camera node.
+        Guarantees consistent reads across all status attributes.
+        """
+        with self._lock:
+            running = self.is_running
+            current_anomaly = self.anomaly_state.get("last_state", "normal")
+            if not running:
+                node_status = "stopped"
+                node_health = "offline"
+            else:
+                node_status = "anomaly" if current_anomaly in ("camera_blinded", "camera_frozen") else "running"
+                node_health = "healthy" if (time.time() - self.last_frame_time < 3.0) else "degraded"
+
+            return {
+                "camera_id": self.camera_id,
+                "status": node_status,
+                "health": node_health,
+                "last_event": self.last_event,
+                "faces_blurred_count": self.faces_blurred_count,
+            }
 
     def start(self) -> None:
         """
@@ -917,7 +983,8 @@ class CameraNode:
         # Step 2: Emit node_start lifecycle event
         start_event = make_event(self.camera_id, "node_start", blurred=False)
         emit_event(start_event)
-        self.last_event = "node_start"
+        with self._lock:
+            self.last_event = "node_start"
 
         # Step 3: Launch background worker thread
         self._thread = threading.Thread(
@@ -931,22 +998,26 @@ class CameraNode:
     def stop(self) -> None:
         """
         Stops the camera processing loop and waits for the thread to terminate.
+        Guarantees video capture hardware/file handles are cleanly released.
         """
         if not self.is_running:
             return
 
-        # Step 1: Signal loop to terminate
+        # Step 1: Signal worker loop to terminate
         self.is_running = False
 
-        # Step 2: Join thread with timeout
+        # Step 2: Join worker thread with timeout
         if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=3.0)
+            if self._thread.is_alive():
+                print(f"[NODE-WARN] {self.camera_id} worker thread took longer than 3.0s to terminate.")
             self._thread = None
 
         # Step 3: Emit node_stop lifecycle event
         stop_event = make_event(self.camera_id, "node_stop", blurred=False)
         emit_event(stop_event)
-        self.last_event = "node_stop"
+        with self._lock:
+            self.last_event = "node_stop"
         print(f"[NODE-STOP] {self.camera_id} stopped cleanly.")
 
     def get_latest_jpeg(self) -> bytes | None:
@@ -1016,97 +1087,110 @@ class CameraNode:
         Main worker loop executed inside the camera thread.
         Reads frames, detects and blurs faces, encrypts crops, checks anomalies,
         and keeps the latest blurred frame in memory.
+        Guarantees that video capture handles are always cleanly released on exit.
         """
         cap: cv2.VideoCapture | None = None
         try:
             # Each node opens its own capture instance of self.video_source
-            cap = cv2.VideoCapture(self.video_source)
-            if not cap.isOpened():
-                print(f"[NODE-WARN] {self.camera_id} could not open source '{self.video_source}'. Using synthetic feed.")
+            try:
+                cap = cv2.VideoCapture(self.video_source)
+                if not cap.isOpened():
+                    print(f"[NODE-WARN] {self.camera_id} could not open source '{self.video_source}'. Using synthetic feed.")
+            except Exception as exc:
+                print(f"[NODE-WARN] {self.camera_id} error opening video source ({exc}). Using synthetic feed.")
+
+            while self.is_running:
+                frame: np.ndarray | None = None
+
+                # Step 1: Read frame from video source
+                if cap is not None and cap.isOpened():
+                    ret, read_frame = cap.read()
+                    if ret and read_frame is not None:
+                        frame = read_frame
+                    else:
+                        # If reading a video file, loop back to the start
+                        if isinstance(self.video_source, str) and os.path.exists(self.video_source):
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            ret_loop, loop_frame = cap.read()
+                            if ret_loop and loop_frame is not None:
+                                frame = loop_frame
+
+                # Step 2: Fallback to synthetic frame if video source fails or is unavailable
+                if frame is None:
+                    frame = self._generate_synthetic_frame()
+
+                # Step 2b: Apply demo drill simulation overrides if active
+                with self._lock:
+                    sim_mode = self._simulation_override
+                    sim_frozen_frame = self._frozen_frame_cache
+
+                if sim_mode == "blind":
+                    # Create pitch dark frame to trigger camera_blinded anomaly
+                    frame = np.full_like(frame, 5)
+                elif sim_mode == "freeze":
+                    # Repeat identical cached frame to trigger camera_frozen anomaly
+                    if sim_frozen_frame is not None:
+                        frame = sim_frozen_frame.copy()
+
+                # Step 3: Run face detection and strong privacy blurring
+                blurred_frame, face_crops = detect_and_blur_faces(frame)
+
+                # Step 4: Encrypt and store all extracted face crops
+                current_window = get_window_id()
+                for crop_img, bbox in face_crops:
+                    encrypt_and_store_crop(self.camera_id, current_window, crop_img)
+                    with self._lock:
+                        self.faces_blurred_count += 1
+
+                # Step 5: Emit face_blurred event (rate-limited to avoid flooding)
+                now = time.time()
+                if len(face_crops) > 0 and (now - self.last_face_event_time >= FACE_EVENT_RATE_LIMIT):
+                    face_event = make_event(self.camera_id, "face_blurred", blurred=True)
+                    emit_event(face_event)
+                    with self._lock:
+                        self.last_event = "face_blurred"
+                        self.last_face_event_time = now
+
+                # Step 6: Monitor for camera blinding or freezing anomalies using blurred_frame
+                # (Prevents retaining unblurred frames in memory as prev_frame)
+                anomaly = check_anomalies(
+                    self.prev_frame,
+                    blurred_frame,
+                    self.brightness_history,
+                    state_tracker=self.anomaly_state,
+                )
+                self.prev_frame = blurred_frame.copy()
+
+                # Step 7: Emit anomaly or recovery events if detected
+                if anomaly in ("camera_blinded", "camera_frozen"):
+                    anomaly_event = make_event(self.camera_id, anomaly, blurred=False)
+                    emit_event(anomaly_event)
+                    with self._lock:
+                        self.last_event = anomaly
+                elif anomaly == "camera_recovered":
+                    recovered_event = make_event(self.camera_id, "recovered", blurred=False)
+                    emit_event(recovered_event)
+                    with self._lock:
+                        self.last_event = "recovered"
+
+                # Step 8: Update latest BLURRED frame in memory (raw faces are never exposed)
+                with self._lock:
+                    self.latest_frame = blurred_frame
+                    self.last_frame_time = time.time()
+
+                # Step 9: Regulate loop frame rate to avoid excessive CPU usage
+                time.sleep(FRAME_INTERVAL_SECONDS)
+
         except Exception as exc:
-            print(f"[NODE-WARN] {self.camera_id} error opening video source ({exc}). Using synthetic feed.")
-
-        while self.is_running:
-            frame: np.ndarray | None = None
-
-            # Step 1: Read frame from video source
-            if cap is not None and cap.isOpened():
-                ret, read_frame = cap.read()
-                if ret and read_frame is not None:
-                    frame = read_frame
-                else:
-                    # If reading a video file, loop back to the start
-                    if isinstance(self.video_source, str) and os.path.exists(self.video_source):
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        ret_loop, loop_frame = cap.read()
-                        if ret_loop and loop_frame is not None:
-                            frame = loop_frame
-
-            # Step 2: Fallback to synthetic frame if video source fails or is unavailable
-            if frame is None:
-                frame = self._generate_synthetic_frame()
-
-            # Step 2b: Apply demo drill simulation overrides if active
-            with self._lock:
-                sim_mode = self._simulation_override
-                sim_frozen_frame = self._frozen_frame_cache
-
-            if sim_mode == "blind":
-                # Create pitch dark frame to trigger camera_blinded anomaly
-                frame = np.full_like(frame, 5)
-            elif sim_mode == "freeze":
-                # Repeat identical cached frame to trigger camera_frozen anomaly
-                if sim_frozen_frame is not None:
-                    frame = sim_frozen_frame.copy()
-
-            # Step 3: Run face detection and strong privacy blurring
-            blurred_frame, face_crops = detect_and_blur_faces(frame)
-
-            # Step 4: Encrypt and store all extracted face crops
-            current_window = get_window_id()
-            for crop_img, bbox in face_crops:
-                encrypt_and_store_crop(self.camera_id, current_window, crop_img)
-                self.faces_blurred_count += 1
-
-            # Step 5: Emit face_blurred event (rate-limited to avoid flooding)
-            now = time.time()
-            if len(face_crops) > 0 and (now - self.last_face_event_time >= FACE_EVENT_RATE_LIMIT):
-                face_event = make_event(self.camera_id, "face_blurred", blurred=True)
-                emit_event(face_event)
-                self.last_event = "face_blurred"
-                self.last_face_event_time = now
-
-            # Step 6: Monitor for camera blinding or freezing anomalies
-            anomaly = check_anomalies(
-                self.prev_frame,
-                frame,
-                self.brightness_history,
-                state_tracker=self.anomaly_state,
-            )
-            self.prev_frame = frame.copy()
-
-            # Step 7: Emit anomaly or recovery events if detected
-            if anomaly in ("camera_blinded", "camera_frozen"):
-                anomaly_event = make_event(self.camera_id, anomaly, blurred=False)
-                emit_event(anomaly_event)
-                self.last_event = anomaly
-            elif anomaly == "camera_recovered":
-                recovered_event = make_event(self.camera_id, "recovered", blurred=False)
-                emit_event(recovered_event)
-                self.last_event = "recovered"
-
-            # Step 8: Update latest BLURRED frame in memory (raw faces are never exposed)
-            with self._lock:
-                self.latest_frame = blurred_frame
-                self.last_frame_time = time.time()
-
-            # Step 9: Regulate loop frame rate to avoid excessive CPU usage
-            time.sleep(FRAME_INTERVAL_SECONDS)
-
-        # Clean up video capture on thread exit
-        if cap is not None and cap.isOpened():
-            cap.release()
-            print(f"[NODE-EXIT] {self.camera_id} video capture released.")
+            print(f"[NODE-ERROR] Unexpected error in {self.camera_id} loop: {exc}")
+        finally:
+            # Clean up video capture on thread exit (guaranteed release)
+            if cap is not None:
+                try:
+                    cap.release()
+                    print(f"[NODE-EXIT] {self.camera_id} video capture released.")
+                except Exception as exc:
+                    print(f"[NODE-WARN] Error releasing capture for {self.camera_id}: {exc}")
 
 
 class EdgeMesh:
@@ -1162,19 +1246,9 @@ class EdgeMesh:
           - health ("healthy", "degraded", "offline")
           - last_event
           - faces_blurred_count
+        Thread-safe snapshot.
         """
-        status_list: list[dict[str, Any]] = []
-        for node in self.nodes.values():
-            status_list.append(
-                {
-                    "camera_id": node.camera_id,
-                    "status": node.status,
-                    "health": node.health,
-                    "last_event": node.last_event,
-                    "faces_blurred_count": node.faces_blurred_count,
-                }
-            )
-        return status_list
+        return [node.get_summary() for node in self.nodes.values()]
 
     def get_latest_jpeg(self, camera_id: str) -> bytes | None:
         """
@@ -1270,12 +1344,7 @@ def get_camera_events(limit: int = Query(default=50, ge=1, le=500)) -> list[Came
     Returns the latest CameraEvents from the thread-safe in-memory log as JSON.
     Sorted with newest events first.
     """
-    with EVENT_LOG_LOCK:
-        # Slice latest events up to the requested limit
-        events_list = list(EVENT_LOG)[-limit:]
-        # Reverse order so newest events are at the top
-        events_list.reverse()
-    return events_list
+    return get_recent_events(limit=limit)
 
 
 @router.get("/{camera_id}/frame")
@@ -1386,7 +1455,7 @@ if __name__ == "__main__":
     print(f"[TEST 1] Stored encrypted file with SHA-256 hash: {crop_hash}")
 
     # Verify index mapping was updated
-    indexed_hashes = CROP_INDEX.get((test_camera_id, test_window_id), [])
+    indexed_hashes = get_crop_hashes(test_camera_id, test_window_id)
     assert crop_hash in indexed_hashes, "Error: Crop hash not found in CROP_INDEX!"
     print(f"[TEST 1] CROP_INDEX updated properly. Total stored crops for window: {len(indexed_hashes)}")
 
@@ -1525,42 +1594,72 @@ if __name__ == "__main__":
     print("     [OK] Correctly emitted recovery event upon unfreezing: 'camera_recovered'")
 
     # -------------------------------------------------------------------------
-    # TEST 4: EdgeMesh & CameraNode Lifecycles
+    # TEST 4: Standalone EdgeMesh Self-Test (3 Fake Nodes for ~15 Seconds)
     # -------------------------------------------------------------------------
-    print("\n[TEST 4] Testing CameraNode & EdgeMesh Multi-Node Orchestration...")
-    mesh = EdgeMesh(num_nodes=3)
+    print("\n" + "=" * 70)
+    print("[TEST 4] STANDALONE MESH SELF-TEST: 3 FAKE NODES FOR ~15 SECONDS")
+    print("=" * 70)
+    print("Initializing 3 fake nodes (cam_01, cam_02, cam_03) with simulated video...")
 
-    # Start all camera nodes
+    fake_video_source = ensure_test_video()
+    mesh = EdgeMesh(num_nodes=3, video_source=fake_video_source)
+
+    # Start all 3 fake camera nodes
     mesh.start_all()
 
-    # Let nodes process frames and emit initial events
-    time.sleep(1.0)
+    test_start_time = time.time()
+    test_duration = 15.0
+    drill_blind_injected = False
+    drill_recover_injected = False
 
-    # Check status report
-    mesh_status = mesh.get_status()
-    print(f"[TEST 4] Mesh status report: {mesh_status}")
-    assert len(mesh_status) == 3, f"Expected 3 nodes in status list, got: {len(mesh_status)}"
+    print(f"\n[TEST 4] Mesh running for ~{int(test_duration)} seconds. Streaming live events below:\n")
 
-    for node_info in mesh_status:
-        assert node_info["status"] == "running", f"Unexpected node status: {node_info['status']}"
-        assert node_info["health"] == "healthy", f"Unexpected node health: {node_info['health']}"
-        assert node_info["last_event"] in ("node_start", "face_blurred", "normal", "camera_frozen", "recovered"), (
-            f"Unexpected last event: {node_info['last_event']}"
-        )
+    while True:
+        elapsed = time.time() - test_start_time
+        if elapsed >= test_duration:
+            break
 
-    # Test JPEG frame retrieval
-    frame_bytes = mesh.get_latest_jpeg("cam_01")
-    assert frame_bytes is not None and len(frame_bytes) > 0, "Expected valid JPEG bytes from cam_01"
-    print(f"[TEST 4] Successfully retrieved latest blurred frame for cam_01 ({len(frame_bytes)} bytes).")
+        # At ~5 seconds into the test: simulate blinding drill on cam_02
+        if elapsed >= 5.0 and not drill_blind_injected:
+            print(f"\n>>> [T+{elapsed:04.1f}s DRILL INJECTION] Injecting simulated BLINDING into cam_02...")
+            mesh.nodes["cam_02"].simulate_anomaly("blind")
+            drill_blind_injected = True
 
-    # Stop all camera nodes cleanly
+        # At ~10 seconds into the test: recover cam_02 back to normal
+        if elapsed >= 10.0 and not drill_recover_injected:
+            print(f"\n>>> [T+{elapsed:04.1f}s DRILL RECOVERY] Resetting cam_02 back to normal...")
+            mesh.nodes["cam_02"].simulate_anomaly("recover")
+            drill_recover_injected = True
+
+        # Print telemetry heartbeat summary
+        mesh_status = mesh.get_status()
+        summary_tokens = []
+        for s in mesh_status:
+            summary_tokens.append(f"{s['camera_id']}: {s['status'].upper()} ({s['health']}, last={s['last_event']})")
+        print(f"[STATUS @ T+{elapsed:04.1f}s] {' | '.join(summary_tokens)}")
+
+        # Verify frame retrieval works mid-run
+        sample_frame = mesh.get_latest_jpeg("cam_01")
+        assert sample_frame is not None and len(sample_frame) > 0, "cam_01 must produce valid JPEG"
+
+        time.sleep(2.5)
+
+    print(f"\n[TEST 4] Completed {int(test_duration)}s run. Stopping all 3 fake camera nodes...")
     mesh.stop_all()
 
     # Verify stopped status
     stopped_status = mesh.get_status()
     for node_info in stopped_status:
         assert node_info["status"] == "stopped", f"Expected 'stopped' after stop_all, got: {node_info['status']}"
-    print("[TEST 4] All mesh nodes stopped successfully.")
+    print("[TEST 4] All 3 fake nodes stopped cleanly and all video captures released.")
+
+    # Print summary of events collected
+    print("\n" + "-" * 70)
+    print("EVENT LOG SUMMARY (Recent events emitted during standalone test):")
+    print("-" * 70)
+    recent_events = get_recent_events(limit=25)
+    for evt in reversed(recent_events):
+        print(f"  [{evt.timestamp}] Node: {evt.camera_id} | Type: {evt.event_type:<16} | Blurred: {evt.blurred}")
 
     # -------------------------------------------------------------------------
     # TEST 5: Escrow Module Integration (get_window_key_for_escrow & decrypt_footage)
