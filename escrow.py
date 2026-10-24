@@ -281,6 +281,14 @@ UNLOCKED_KEYS: Dict[str, str] = {}
 def register_camera_window_key(camera_id: str, window_id: str, master_key_hex: Optional[str] = None) -> WindowKeyBundle:
     """Registers and shards an AES-256 key for a specific camera and 10-minute window."""
     if not master_key_hex:
+        try:
+            import edge
+            k = edge.get_window_key_for_escrow(camera_id, window_id)
+            if k and len(k) == 32:
+                master_key_hex = k.hex()
+        except Exception:
+            pass
+    if not master_key_hex:
         master_key_hex = secrets.token_hex(32)  # 256-bit key
     bundle = WindowKeyBundle(camera_id, window_id, master_key_hex)
     CAMERA_WINDOW_KEYS[(camera_id, window_id)] = bundle
@@ -662,6 +670,13 @@ def cast_custodian_vote(case_id: str, vote: VoteRequest):
                 details=f"Shamir 2-of-3 threshold met by custodians: {', '.join(case.approvals)}. Scoped AES-256 decryption key released for {case.camera_id} @ {case.window_id}.",
             )
 
+            # Trigger edge decryption verification
+            try:
+                import edge
+                edge.decrypt_footage(case.camera_id, case.window_id, bytes.fromhex(reconstructed_key))
+            except Exception as exc:
+                print(f"[ESCROW->EDGE] Decryption notification: {exc}")
+
     elif vote.decision == "deny":
         # Audit log for custodian denial
         audit_log.append_entry(
@@ -690,6 +705,51 @@ def cast_custodian_vote(case_id: str, vote: VoteRequest):
         "quorum_achieved": case.status == "approved",
         "unlocked_key": UNLOCKED_KEYS.get(case_id),
     }
+
+
+@router.get("/cases/{case_id}/footage")
+def get_case_footage(case_id: str):
+    """
+    Returns decrypted camera face crops for an approved case.
+    Scoped strictly to the case's camera_id and window_id.
+    """
+    case = CASES.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if case.status != "approved":
+        raise HTTPException(status_code=403, detail="Case is not approved by custodian quorum")
+
+    key_hex = UNLOCKED_KEYS.get(case_id)
+    if not key_hex:
+        raise HTTPException(status_code=400, detail="Key not unlocked yet")
+
+    try:
+        import base64
+        import cv2
+        import edge
+        crops = edge.decrypt_footage(case.camera_id, case.window_id, bytes.fromhex(key_hex))
+        crops_b64 = []
+        for crop in crops:
+            ret, buf = cv2.imencode(".jpg", crop)
+            if ret:
+                crops_b64.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
+        return {
+            "case_id": case_id,
+            "camera_id": case.camera_id,
+            "window_id": case.window_id,
+            "crop_count": len(crops),
+            "crops_base64": crops_b64,
+            "status": "unmasked",
+        }
+    except Exception as exc:
+        return {
+            "case_id": case_id,
+            "camera_id": case.camera_id,
+            "window_id": case.window_id,
+            "crop_count": 0,
+            "crops_base64": [],
+            "status": f"decryption_notice: {exc}",
+        }
 
 
 # =============================================================================

@@ -19,3 +19,8 @@ dashboard/dist/
 # Honeypot Upload Quarantine (attacker artifacts kept out of Git)
 quarantine/
 decoy_uploads/
+
+# Models, media artifacts & edge local storage
+*.onnx
+*.mp4
+edge_storage/
