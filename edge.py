@@ -12,6 +12,7 @@ from datetime import datetime
 import hashlib
 import os
 import threading
+import time
 from typing import Any
 
 # Cryptography for authenticated symmetric encryption (AES-256-GCM)
@@ -40,6 +41,32 @@ VIDEO_SOURCE = 0
 
 # Local directory path used for storing encrypted crops and metadata
 STORAGE_DIR = "edge_storage/"
+
+# Rate limit for emitting 'face_blurred' events in seconds (prevents event flood)
+FACE_EVENT_RATE_LIMIT = 3.0
+
+# Simulated camera loop frame interval (0.06 seconds ~= 16 FPS)
+FRAME_INTERVAL_SECONDS = 0.06
+
+# -----------------------------------------------------------------------------
+# Anomaly Detection Thresholds (Tuning Constants)
+# -----------------------------------------------------------------------------
+# Number of recent frames tracked for rolling average brightness calculation
+BRIGHTNESS_HISTORY_LEN = 20
+
+# Blinding: drop ratio in mean brightness compared to rolling average (0.60 = 60% drop)
+# If brightness falls by >= 60% from the rolling baseline, the camera is considered blinded.
+BLINDING_DROP_RATIO = 0.60
+
+# Minimum baseline brightness required to trigger blinding (avoids zero division in pure darkness)
+BLINDING_MIN_BASELINE = 10.0
+
+# Freezing: maximum mean absolute pixel difference between consecutive frames to consider it frozen
+# Real-world video feeds always have sensor noise; diff < 0.5 indicates a repeated/stuck frame buffer.
+FREEZE_DIFF_THRESHOLD = 0.5
+
+# Freezing: number of consecutive near-zero difference frames required before declaring "camera_frozen"
+FREEZE_CONSECUTIVE_FRAMES = 10
 
 
 # =============================================================================
@@ -241,38 +268,6 @@ def detect_and_blur_faces(
 # =============================================================================
 # 4. ENCRYPTION, KEY MANAGEMENT & CONTENT-ADDRESSED STORAGE
 # =============================================================================
-# -----------------------------------------------------------------------------
-# CRYPTOGRAPHY BACKGROUND & DESIGN EXPLANATION:
-#
-# 1. AES-GCM (Galois/Counter Mode):
-#    AES-GCM is an "Authenticated Encryption with Associated Data" (AEAD) cipher.
-#    Unlike older modes (like CBC or ECB), AES-GCM guarantees both:
-#      - Confidentiality: No one can inspect or view the raw face crop without
-#        possessing the 32-byte secret key.
-#      - Authenticity / Integrity: An authentication tag (16 bytes) is generated
-#        alongside the ciphertext. If even a single bit of the file on disk is
-#        tampered with, decryption will immediately raise an error.
-#
-# 2. Why the Nonce Must Be Unique:
-#    "Nonce" stands for "Number used ONCE". In GCM mode, the key and nonce
-#    together generate a pseudo-random keystream. If the exact same key and
-#    nonce are ever reused to encrypt two different face crops, the keystream
-#    is identical. An attacker can XOR the two ciphertexts together, removing
-#    the encryption and exposing the underlying data!
-#    Therefore, we generate a fresh, cryptographically random 12-byte nonce
-#    for EVERY single crop.
-#
-# 3. What "Content Addressing" Means Here:
-#    Instead of naming stored files with arbitrary sequential numbers (like
-#    crop1.bin, crop2.bin) or timestamps, each file is named after the SHA-256
-#    hash of its encrypted payload (<sha256>.bin).
-#    This provides:
-#      - Deduplication: Identical encrypted payloads cannot collide or duplicate.
-#      - Self-Verification: The file's integrity can be checked by hashing its
-#        contents and verifying that it matches the filename.
-#      - Tamper-Evidence: Modifying the file on disk invalidates its filename.
-# -----------------------------------------------------------------------------
-
 # In-memory dictionary storing the 32-byte AES-256 key per (camera_id, window_id)
 # This key is shared across all crops produced by this camera in this 10-minute window
 WINDOW_KEYS: dict[tuple[str, str], bytes] = {}
@@ -356,18 +351,16 @@ def encrypt_and_store_crop(
     ciphertext_with_tag = aesgcm.encrypt(nonce, jpeg_bytes, None)
 
     # Step 5: Combine nonce (12 bytes) + ciphertext_with_tag into a single binary payload
-    # Storing the nonce together with ciphertext allows the recipient to decrypt it later
     payload = nonce + ciphertext_with_tag
 
     # Step 6: Compute the SHA-256 hash of the ciphertext for content addressing
     sha256_hash = hashlib.sha256(ciphertext_with_tag).hexdigest()
 
-    # Step 7: Prepare the local filesystem directory path (e.g., edge_storage/cam-01/2026-10-24T14-30/)
+    # Step 7: Prepare the local filesystem directory path
     target_dir = _get_window_storage_dir(camera_id, window_id)
     os.makedirs(target_dir, exist_ok=True)
 
     # Step 8: Save the encrypted payload to disk using content addressing: <sha256>.bin
-    # Note: RAW UNENCRYPTED FACES ARE NEVER WRITTEN TO DISK!
     file_path = os.path.join(target_dir, f"{sha256_hash}.bin")
     with open(file_path, "wb") as f:
         f.write(payload)
@@ -378,11 +371,6 @@ def encrypt_and_store_crop(
         if idx_key not in CROP_INDEX:
             CROP_INDEX[idx_key] = []
         CROP_INDEX[idx_key].append(sha256_hash)
-
-    print(
-        f"[STORAGE] Stored encrypted crop: {file_path} "
-        f"(Camera: {camera_id}, Window: {window_id}, Hash: {sha256_hash[:8]}...)"
-    )
 
     # Step 10: Return the computed SHA-256 hash string
     return sha256_hash
@@ -452,62 +440,472 @@ def get_encrypted_footage(camera_id: str, window_id: str) -> list[str]:
 
 
 # =============================================================================
-# 5. REMAINING PLACEHOLDERS
+# 5. ANOMALY DETECTION (BLINDING & FREEZING)
 # =============================================================================
+# Global anomaly state tracker used when callers do not provide a dedicated tracker dict
+_GLOBAL_ANOMALY_STATE: dict[str, Any] = {
+    "frozen_count": 0,
+    "last_state": "normal",
+}
+_GLOBAL_ANOMALY_LOCK = threading.Lock()
+
+
+def check_anomalies(
+    prev_frame: np.ndarray | None,
+    curr_frame: np.ndarray,
+    brightness_history: list[float] | collections.deque[float],
+    state_tracker: dict[str, Any] | None = None,
+) -> str | None:
+    """
+    Monitors edge camera frames for physical tampering (blinding) or system hang (freezing).
+
+    Returns:
+        - "camera_blinded": When brightness drops by >= 60% relative to rolling baseline.
+        - "camera_frozen": When frame difference is near zero for N consecutive frames.
+        - "camera_recovered": When the camera returns to normal after an anomaly state.
+        - None: If camera is functioning normally or continuing in an already-reported state.
+    """
+    # Step 1: Basic validation - ignore empty frames
+    if curr_frame is None or curr_frame.size == 0:
+        return None
+
+    # Step 2: Select the state dictionary (use provided tracker or default global)
+    if state_tracker is None:
+        state = _GLOBAL_ANOMALY_STATE
+        lock = _GLOBAL_ANOMALY_LOCK
+    else:
+        state = state_tracker
+        lock = None
+
+    # Step 3: Compute current frame mean brightness in grayscale
+    if len(curr_frame.shape) == 3:
+        curr_gray = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+    else:
+        curr_gray = curr_frame
+    curr_brightness = float(np.mean(curr_gray))
+
+    # Step 4: Check for Camera Blinding
+    is_blinded = False
+    if len(brightness_history) >= 5:
+        rolling_avg = float(np.mean(brightness_history))
+        if rolling_avg >= BLINDING_MIN_BASELINE:
+            drop_ratio = (rolling_avg - curr_brightness) / rolling_avg
+            if drop_ratio >= BLINDING_DROP_RATIO:
+                is_blinded = True
+
+    # Step 5: Update the brightness history with current frame's brightness
+    if isinstance(brightness_history, collections.deque):
+        brightness_history.append(curr_brightness)
+    elif isinstance(brightness_history, list):
+        brightness_history.append(curr_brightness)
+        if len(brightness_history) > BRIGHTNESS_HISTORY_LEN:
+            brightness_history.pop(0)
+
+    # Step 6: Check for Camera Freezing (Difference between consecutive frames)
+    is_frozen = False
+    if prev_frame is not None and prev_frame.shape == curr_frame.shape:
+        if len(prev_frame.shape) == 3:
+            prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+        else:
+            prev_gray = prev_frame
+
+        diff = cv2.absdiff(prev_gray, curr_gray)
+        mean_diff = float(np.mean(diff))
+
+        if mean_diff < FREEZE_DIFF_THRESHOLD:
+            state["frozen_count"] = state.get("frozen_count", 0) + 1
+        else:
+            state["frozen_count"] = 0
+
+        if state["frozen_count"] >= FREEZE_CONSECUTIVE_FRAMES:
+            is_frozen = True
+    else:
+        state["frozen_count"] = 0
+
+    # Step 7: Determine raw current anomaly condition
+    if is_blinded:
+        current_condition = "camera_blinded"
+    elif is_frozen:
+        current_condition = "camera_frozen"
+    else:
+        current_condition = "normal"
+
+    # Step 8: State Transition Management (Emit only on state changes)
+    event_to_emit: str | None = None
+
+    def _update_state():
+        nonlocal event_to_emit
+        last_state = state.get("last_state", "normal")
+
+        if current_condition != "normal":
+            if last_state != current_condition:
+                event_to_emit = current_condition
+                state["last_state"] = current_condition
+                print(f"[ANOMALY-ALERT] State changed to: {current_condition}")
+            else:
+                event_to_emit = None
+        else:
+            if last_state != "normal":
+                event_to_emit = "camera_recovered"
+                state["last_state"] = "normal"
+                print(f"[ANOMALY-ALERT] Camera recovered! Previous anomaly was: {last_state}")
+            else:
+                event_to_emit = None
+
+    if lock is not None:
+        with lock:
+            _update_state()
+    else:
+        _update_state()
+
+    return event_to_emit
+
+
+# =============================================================================
+# 6. CAMERA NODE & EDGE MESH
+# =============================================================================
+# -----------------------------------------------------------------------------
+# CONCURRENCY DESIGN CHOICE: THREADING VS ASYNCIO
+#
+# We choose standard OS threads (threading.Thread with daemon=True) rather
+# than asyncio tasks for the CameraNode processing loop because:
+#
+# 1. CPU-Bound Blocking Operations:
+#    Frame capture (cv2.VideoCapture.read), MediaPipe face detection inference,
+#    Gaussian blur, and AES-256-GCM encryption are heavy, blocking, CPU-bound
+#    operations implemented in native C/C++ extensions.
+#
+# 2. Preventing FastAPI Event Loop Starvation:
+#    If heavy synchronous computer vision and cryptographic loops run inside
+#    an asyncio task on the main thread, they will block the entire asyncio event
+#    loop. This would cause FastAPI to hang and become unresponsive to incoming
+#    HTTP requests from the dashboard or API consumers.
+#
+# 3. Seamless Integration:
+#    Running each CameraNode in a background OS thread with its own sleep throttle
+#    allows OpenCV and MediaPipe to release the GIL, letting FastAPI's async
+#    endpoints serve HTTP requests with instant, low-latency responsiveness.
+# -----------------------------------------------------------------------------
+
+
 class CameraNode:
     """
-    Represents an individual simulated edge camera node running in its own thread.
+    Represents an autonomous edge camera node. Runs in its own background thread,
+    captures video frames, detects and blurs faces, encrypts face crops for storage,
+    monitors for physical anomalies, and emits CameraEvent records.
     """
 
     def __init__(self, camera_id: str, video_source: Any = VIDEO_SOURCE) -> None:
-        # Step 1: Save the camera identifier
+        # Step 1: Store camera configuration and identifiers
         self.camera_id = camera_id
-        # Step 2: Save the video source (webcam index or video path)
         self.video_source = video_source
-        # Step 3: Flag indicating if the camera node loop is running
+
+        # Step 2: Threading and execution control flags
         self.is_running = False
-        print(f"[INIT] CameraNode created: {self.camera_id}")
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+        # Step 3: Frame memory (ONLY the blurred frame is ever exposed outside)
+        self.latest_frame: np.ndarray | None = None
+        self.last_frame_time: float = 0.0
+
+        # Step 4: Health and event metrics
+        self.faces_blurred_count: int = 0
+        self.last_event: str = "node_created"
+        self.last_face_event_time: float = 0.0
+
+        # Step 5: Anomaly tracking state for this specific node
+        self.anomaly_state: dict[str, Any] = {
+            "frozen_count": 0,
+            "last_state": "normal",
+        }
+        self.brightness_history: collections.deque[float] = collections.deque(
+            maxlen=BRIGHTNESS_HISTORY_LEN
+        )
+        self.prev_frame: np.ndarray | None = None
+
+        print(f"[NODE-INIT] CameraNode created: {self.camera_id}")
+
+    @property
+    def status(self) -> str:
+        """
+        Returns the operational status of the camera:
+        'stopped', 'anomaly', or 'running'.
+        """
+        if not self.is_running:
+            return "stopped"
+
+        current_anomaly = self.anomaly_state.get("last_state", "normal")
+        if current_anomaly in ("camera_blinded", "camera_frozen"):
+            return "anomaly"
+
+        return "running"
+
+    @property
+    def health(self) -> str:
+        """
+        Returns the health indicator based on recent frame processing activity:
+        'healthy', 'degraded', or 'offline'.
+        """
+        if not self.is_running:
+            return "offline"
+
+        # If a frame was processed within the last 3 seconds, node is healthy
+        if time.time() - self.last_frame_time < 3.0:
+            return "healthy"
+
+        return "degraded"
 
     def start(self) -> None:
-        """Starts the camera capture and processing loop."""
-        pass
+        """
+        Starts the background processing thread for this camera node.
+        """
+        if self.is_running:
+            print(f"[NODE-START] {self.camera_id} is already running.")
+            return
+
+        # Step 1: Update running state
+        self.is_running = True
+
+        # Step 2: Emit node_start lifecycle event
+        start_event = make_event(self.camera_id, "node_start", blurred=False)
+        emit_event(start_event)
+        self.last_event = "node_start"
+
+        # Step 3: Launch background worker thread
+        self._thread = threading.Thread(
+            target=self._run_loop,
+            name=f"CameraNodeThread-{self.camera_id}",
+            daemon=True,
+        )
+        self._thread.start()
+        print(f"[NODE-START] {self.camera_id} worker thread launched successfully.")
 
     def stop(self) -> None:
-        """Stops the camera capture and processing loop."""
-        pass
+        """
+        Stops the camera processing loop and waits for the thread to terminate.
+        """
+        if not self.is_running:
+            return
 
+        # Step 1: Signal loop to terminate
+        self.is_running = False
 
-def check_anomalies(camera_id: str, face_count: int) -> list[str]:
-    """
-    Checks for edge anomalies (e.g. loitering, crowding, tampering).
-    Placeholder: returns an empty list of detected anomaly tags.
-    """
-    return []
+        # Step 2: Join thread with timeout
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+            self._thread = None
+
+        # Step 3: Emit node_stop lifecycle event
+        stop_event = make_event(self.camera_id, "node_stop", blurred=False)
+        emit_event(stop_event)
+        self.last_event = "node_stop"
+        print(f"[NODE-STOP] {self.camera_id} stopped cleanly.")
+
+    def get_latest_jpeg(self) -> bytes | None:
+        """
+        Returns the latest blurred frame encoded as JPEG bytes.
+        Thread-safe. Never exposes raw unblurred video.
+        """
+        with self._lock:
+            if self.latest_frame is None:
+                return None
+            success, encoded_jpg = cv2.imencode(".jpg", self.latest_frame)
+            if success:
+                return encoded_jpg.tobytes()
+            return None
+
+    def _generate_synthetic_frame(self) -> np.ndarray:
+        """
+        Generates a simulated smart-city surveillance frame when a real webcam
+        or video file is unavailable, or when multiple simulated nodes share one device.
+        """
+        # Create dark CCTV-style canvas
+        canvas = np.full((480, 640, 3), 35, dtype=np.uint8)
+
+        # Draw green corner brackets (HUD overlay)
+        cv2.line(canvas, (20, 20), (60, 20), (0, 255, 128), 2)
+        cv2.line(canvas, (20, 20), (20, 60), (0, 255, 128), 2)
+        cv2.line(canvas, (620, 460), (580, 460), (0, 255, 128), 2)
+        cv2.line(canvas, (620, 460), (620, 420), (0, 255, 128), 2)
+
+        # Camera header and live timestamp
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cv2.putText(
+            canvas,
+            f"AEGIS SENTRY // {self.camera_id.upper()}",
+            (30, 45),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (0, 255, 128),
+            2,
+        )
+        cv2.putText(
+            canvas,
+            now_str,
+            (30, 75),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (180, 180, 180),
+            1,
+        )
+
+        # Draw simulated human figure in field of view
+        cv2.circle(canvas, (320, 240), 75, (175, 155, 135), -1)
+        cv2.circle(canvas, (295, 220), 10, (40, 40, 40), -1)
+        cv2.circle(canvas, (345, 220), 10, (40, 40, 40), -1)
+        cv2.ellipse(canvas, (320, 265), (25, 12), 0, 0, 180, (40, 40, 180), 3)
+
+        return canvas
+
+    def _run_loop(self) -> None:
+        """
+        Main worker loop executed inside the camera thread.
+        Reads frames, detects and blurs faces, encrypts crops, checks anomalies,
+        and keeps the latest blurred frame in memory.
+        """
+        cap: cv2.VideoCapture | None = None
+        try:
+            cap = cv2.VideoCapture(self.video_source)
+        except Exception as exc:
+            print(f"[NODE-WARN] {self.camera_id} could not open video source ({exc}). Using synthetic feed.")
+
+        while self.is_running:
+            frame: np.ndarray | None = None
+
+            # Step 1: Read frame from video source
+            if cap is not None and cap.isOpened():
+                ret, read_frame = cap.read()
+                if ret and read_frame is not None:
+                    frame = read_frame
+                else:
+                    # If reading a video file, loop back to the start
+                    if isinstance(self.video_source, str) and os.path.exists(self.video_source):
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret_loop, loop_frame = cap.read()
+                        if ret_loop and loop_frame is not None:
+                            frame = loop_frame
+
+            # Step 2: Fallback to synthetic frame if video source fails or is unavailable
+            if frame is None:
+                frame = self._generate_synthetic_frame()
+
+            # Step 3: Run face detection and strong privacy blurring
+            blurred_frame, face_crops = detect_and_blur_faces(frame)
+
+            # Step 4: Encrypt and store all extracted face crops
+            current_window = get_window_id()
+            for crop_img, bbox in face_crops:
+                encrypt_and_store_crop(self.camera_id, current_window, crop_img)
+                self.faces_blurred_count += 1
+
+            # Step 5: Emit face_blurred event (rate-limited to avoid flooding)
+            now = time.time()
+            if len(face_crops) > 0 and (now - self.last_face_event_time >= FACE_EVENT_RATE_LIMIT):
+                face_event = make_event(self.camera_id, "face_blurred", blurred=True)
+                emit_event(face_event)
+                self.last_event = "face_blurred"
+                self.last_face_event_time = now
+
+            # Step 6: Monitor for camera blinding or freezing anomalies
+            anomaly = check_anomalies(
+                self.prev_frame,
+                frame,
+                self.brightness_history,
+                state_tracker=self.anomaly_state,
+            )
+            self.prev_frame = frame.copy()
+
+            # Step 7: Emit anomaly or recovery events if detected
+            if anomaly in ("camera_blinded", "camera_frozen"):
+                anomaly_event = make_event(self.camera_id, anomaly, blurred=False)
+                emit_event(anomaly_event)
+                self.last_event = anomaly
+            elif anomaly == "camera_recovered":
+                recovered_event = make_event(self.camera_id, "recovered", blurred=False)
+                emit_event(recovered_event)
+                self.last_event = "recovered"
+
+            # Step 8: Update latest BLURRED frame in memory (raw faces are never exposed)
+            with self._lock:
+                self.latest_frame = blurred_frame
+                self.last_frame_time = time.time()
+
+            # Step 9: Regulate loop frame rate to avoid excessive CPU usage
+            time.sleep(FRAME_INTERVAL_SECONDS)
+
+        # Clean up video capture on thread exit
+        if cap is not None and cap.isOpened():
+            cap.release()
+            print(f"[NODE-EXIT] {self.camera_id} video capture released.")
 
 
 class EdgeMesh:
     """
-    Coordinates simulated peer camera nodes and monitors network health.
+    Coordinates simulated peer camera nodes (cam_01 to cam_05),
+    manages their lifecycles, and provides status and frame feeds.
     """
 
-    def __init__(self, num_nodes: int = NUM_NODES) -> None:
+    def __init__(self, num_nodes: int = NUM_NODES, video_source: Any = VIDEO_SOURCE) -> None:
         # Step 1: Store total number of nodes
         self.num_nodes = num_nodes
-        # Step 2: Internal map of active CameraNode instances
+
+        # Step 2: Internal map of active CameraNode instances: cam_01 .. cam_05
         self.nodes: dict[str, CameraNode] = {}
-        print(f"[INIT] EdgeMesh initialized with {self.num_nodes} node slots")
+        for i in range(1, self.num_nodes + 1):
+            node_id = f"cam_{i:02d}"
+            self.nodes[node_id] = CameraNode(camera_id=node_id, video_source=video_source)
+
+        print(f"[INIT] EdgeMesh initialized with {len(self.nodes)} nodes: {list(self.nodes.keys())}")
 
     def start_all(self) -> None:
         """Starts all camera nodes in the mesh."""
-        pass
+        print(f"[EDGEMESH] Starting all {len(self.nodes)} camera nodes...")
+        for node in self.nodes.values():
+            node.start()
 
     def stop_all(self) -> None:
         """Stops all camera nodes in the mesh."""
-        pass
+        print(f"[EDGEMESH] Stopping all {len(self.nodes)} camera nodes...")
+        for node in self.nodes.values():
+            node.stop()
+
+    def get_status(self) -> list[dict[str, Any]]:
+        """
+        Returns status information for all nodes in the mesh.
+        Format: list of dicts with keys:
+          - camera_id
+          - status ("running", "stopped", "anomaly")
+          - health ("healthy", "degraded", "offline")
+          - last_event
+          - faces_blurred_count
+        """
+        status_list: list[dict[str, Any]] = []
+        for node in self.nodes.values():
+            status_list.append(
+                {
+                    "camera_id": node.camera_id,
+                    "status": node.status,
+                    "health": node.health,
+                    "last_event": node.last_event,
+                    "faces_blurred_count": node.faces_blurred_count,
+                }
+            )
+        return status_list
+
+    def get_latest_jpeg(self, camera_id: str) -> bytes | None:
+        """
+        Retrieves the latest blurred frame for a specific camera as JPEG bytes.
+        Returns None if camera_id is not found or has not produced a frame yet.
+        """
+        node = self.nodes.get(camera_id)
+        if node is None:
+            return None
+        return node.get_latest_jpeg()
 
 
 # =============================================================================
-# 6. SELF-TEST
+# 7. SELF-TEST
 # =============================================================================
 if __name__ == "__main__":
     print("\n==================================================================")
@@ -608,6 +1006,112 @@ if __name__ == "__main__":
     for idx, (crop_img, bbox) in enumerate(detected_crops):
         stored_hash = encrypt_and_store_crop(test_camera_id, test_window_id, crop_img)
         print(f"[TEST 2] Encrypted & stored face #{idx} under hash: {stored_hash[:8]}...")
+
+    # -------------------------------------------------------------------------
+    # TEST 3: Anomaly Detection (Blinding & Freezing with State Transitions)
+    # -------------------------------------------------------------------------
+    print("\n[TEST 3] Testing Anomaly Detection (Blinding, Freezing & Recovery)...")
+
+    # Test 3A: Camera Blinding
+    print("  -> Sub-test 3A: Camera Blinding")
+    blind_state = {"frozen_count": 0, "last_state": "normal"}
+    brightness_deque: collections.deque[float] = collections.deque(maxlen=BRIGHTNESS_HISTORY_LEN)
+
+    bright_frame = np.full((120, 160, 3), 160, dtype=np.uint8)
+    for _ in range(BRIGHTNESS_HISTORY_LEN):
+        res = check_anomalies(None, bright_frame, brightness_deque, state_tracker=blind_state)
+        assert res is None, f"Expected None during baseline warmup, got: {res}"
+
+    dark_frame = np.full((120, 160, 3), 10, dtype=np.uint8)
+    res_blind = check_anomalies(bright_frame, dark_frame, brightness_deque, state_tracker=blind_state)
+    assert res_blind == "camera_blinded", f"Expected 'camera_blinded', got: {res_blind}"
+    print("     [OK] Correctly detected blinding transition: 'camera_blinded'")
+
+    res_blind_repeat = check_anomalies(dark_frame, dark_frame, brightness_deque, state_tracker=blind_state)
+    assert res_blind_repeat is None, f"Expected None on repeated blinded frame, got: {res_blind_repeat}"
+    print("     [OK] Correctly suppressed repeated alert while still blinded: None")
+
+    res_recovered = check_anomalies(dark_frame, bright_frame, brightness_deque, state_tracker=blind_state)
+    assert res_recovered == "camera_recovered", f"Expected 'camera_recovered', got: {res_recovered}"
+    print("     [OK] Correctly emitted recovery event on return to normal: 'camera_recovered'")
+
+    res_normal = check_anomalies(bright_frame, bright_frame, brightness_deque, state_tracker=blind_state)
+    assert res_normal is None, f"Expected None in steady normal state, got: {res_normal}"
+    print("     [OK] Correctly in steady normal state after recovery: None")
+
+    # Test 3B: Camera Freezing
+    print("  -> Sub-test 3B: Camera Freezing")
+    freeze_state = {"frozen_count": 0, "last_state": "normal"}
+    freeze_history: collections.deque[float] = collections.deque(maxlen=BRIGHTNESS_HISTORY_LEN)
+
+    static_frame = np.random.randint(50, 200, (120, 160, 3), dtype=np.uint8)
+    prev = None
+
+    for _ in range(5):
+        changing_frame = np.random.randint(50, 200, (120, 160, 3), dtype=np.uint8)
+        res_change = check_anomalies(prev, changing_frame, freeze_history, state_tracker=freeze_state)
+        assert res_change is None, f"Expected None during changing frames, got: {res_change}"
+        prev = changing_frame
+
+    print(f"     Feeding identical repeated frames for {FREEZE_CONSECUTIVE_FRAMES} frames...")
+    freeze_detected_event = None
+    for i in range(FREEZE_CONSECUTIVE_FRAMES):
+        evt = check_anomalies(prev, static_frame, freeze_history, state_tracker=freeze_state)
+        prev = static_frame
+        if evt is not None:
+            freeze_detected_event = evt
+
+    assert freeze_detected_event == "camera_frozen", (
+        f"Expected 'camera_frozen' after {FREEZE_CONSECUTIVE_FRAMES} static frames, got: {freeze_detected_event}"
+    )
+    print(f"     [OK] Correctly detected freeze transition at frame {FREEZE_CONSECUTIVE_FRAMES}: 'camera_frozen'")
+
+    evt_repeat = check_anomalies(prev, static_frame, freeze_history, state_tracker=freeze_state)
+    assert evt_repeat is None, f"Expected None on repeated frozen frame, got: {evt_repeat}"
+    print("     [OK] Correctly suppressed duplicate freeze alert: None")
+
+    new_active_frame = np.random.randint(50, 200, (120, 160, 3), dtype=np.uint8)
+    evt_unfreeze = check_anomalies(prev, new_active_frame, freeze_history, state_tracker=freeze_state)
+    assert evt_unfreeze == "camera_recovered", f"Expected 'camera_recovered', got: {evt_unfreeze}"
+    print("     [OK] Correctly emitted recovery event upon unfreezing: 'camera_recovered'")
+
+    # -------------------------------------------------------------------------
+    # TEST 4: EdgeMesh & CameraNode Lifecycles
+    # -------------------------------------------------------------------------
+    print("\n[TEST 4] Testing CameraNode & EdgeMesh Multi-Node Orchestration...")
+    mesh = EdgeMesh(num_nodes=3)
+
+    # Start all camera nodes
+    mesh.start_all()
+
+    # Let nodes process frames and emit initial events
+    time.sleep(0.5)
+
+    # Check status report
+    mesh_status = mesh.get_status()
+    print(f"[TEST 4] Mesh status report: {mesh_status}")
+    assert len(mesh_status) == 3, f"Expected 3 nodes in status list, got: {len(mesh_status)}"
+
+    for node_info in mesh_status:
+        assert node_info["status"] in ("running", "anomaly"), f"Unexpected node status: {node_info['status']}"
+        assert node_info["health"] in ("healthy", "degraded"), f"Unexpected node health: {node_info['health']}"
+        assert node_info["last_event"] in ("node_start", "face_blurred", "normal"), (
+            f"Unexpected last event: {node_info['last_event']}"
+        )
+
+    # Test JPEG frame retrieval
+    frame_bytes = mesh.get_latest_jpeg("cam_01")
+    assert frame_bytes is not None and len(frame_bytes) > 0, "Expected valid JPEG bytes from cam_01"
+    print(f"[TEST 4] Successfully retrieved latest blurred frame for cam_01 ({len(frame_bytes)} bytes).")
+
+    # Stop all camera nodes cleanly
+    mesh.stop_all()
+
+    # Verify stopped status
+    stopped_status = mesh.get_status()
+    for node_info in stopped_status:
+        assert node_info["status"] == "stopped", f"Expected 'stopped' after stop_all, got: {node_info['status']}"
+    print("[TEST 4] All mesh nodes stopped successfully.")
 
     print("\n==================================================================")
     print("ALL EDGE.PY SELF-TESTS COMPLETED SUCCESSFULLY!")
