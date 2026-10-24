@@ -295,7 +295,7 @@ export const EvidencePage: React.FC = () => {
             </span>
           </div>
 
-          <div style={{ flex: 1, position: 'relative', background: '#050811', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ flex: 1, position: 'relative', background: 'var(--bg-app)', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
             <svg width="100%" height="100%" viewBox="0 0 800 440">
               {/* Edges */}
               {graphData.edges.map((edge, i) => {
@@ -313,7 +313,7 @@ export const EvidencePage: React.FC = () => {
                     y1={sy}
                     x2={tx}
                     y2={ty}
-                    stroke="rgba(55, 221, 224, 0.35)"
+                    stroke="rgba(36, 107, 69, 0.4)"
                     strokeWidth="1.5"
                     strokeDasharray="4 4"
                   />
@@ -326,16 +326,17 @@ export const EvidencePage: React.FC = () => {
                 const y = node.y || Math.floor(i / 4) * 120 + 80;
                 const isCamp = node.type === 'campaign';
                 const isSess = node.type === 'session';
-                const col = isCamp ? '#37DDE0' : isSess ? '#A78BFA' : '#F5BC62';
+                const col = isCamp ? '#246B45' : isSess ? '#2D5A43' : '#D97706';
 
                 return (
                   <g key={node.id} transform={`translate(${x}, ${y})`}>
-                    <circle r={isCamp ? 20 : 14} fill="#111B31" stroke={col} strokeWidth="2.5" />
+                    <circle r={isCamp ? 20 : 14} fill="#FFFFFF" stroke={col} strokeWidth="2.5" />
                     <text
                       y={isCamp ? 32 : 24}
-                      fill="#FFFFFF"
-                      fontSize="9"
-                      fontFamily="monospace"
+                      fill="var(--text-primary)"
+                      fontSize="10"
+                      fontWeight="600"
+                      fontFamily="var(--font-mono)"
                       textAnchor="middle"
                     >
                       {node.label || node.id}

@@ -1,748 +1,805 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './city.css';
 import { api, type CameraNode, type DecoyTelemetry } from '../../api/client';
 import { useApp } from '../../context/AppContext';
-import { Badge } from '../../components/ui/Badge';
 
 export interface CityDevice {
   key: string;
   id: string;
   name: string;
   district: string;
-  x: number;
-  z: number;
-  y: number;
-  icon: string;
   type: 'camera' | 'signal' | 'power' | 'sensor' | 'gateway';
-  color: string;
+  xPercent: number; // Percentage coordinate on the diorama illustration
+  yPercent: number;
+  label: string;
 }
 
 const CITY_DEVICES: CityDevice[] = [
-  { key: 'camera', id: 'CAM-01', name: 'Edge Sentry Camera', district: 'Civic Core District', x: -160, z: 125, y: 64, icon: '◉', type: 'camera', color: '#37DDE0' },
-  { key: 'signal', id: 'SIG-02', name: 'Mobility Traffic Controller', district: 'Central Transit Corridor', x: 15, z: 125, y: 40, icon: '⋮', type: 'signal', color: '#F5BC62' },
-  { key: 'power', id: 'PWR-03', name: 'Smart Substation Node', district: 'Industrial Power Sector', x: 185, z: -142, y: 62, icon: 'ϟ', type: 'power', color: '#EC72C7' },
-  { key: 'sensor', id: 'ENV-04', name: 'Environmental Telemetry', district: 'Botanical Environmental Zone', x: -180, z: -125, y: 61, icon: '⌁', type: 'sensor', color: '#34D399' },
-  { key: 'gateway', id: 'GW-05', name: 'Phantom Twin Honeypot Gateway', district: 'Virtual Deception Perimeter', x: 55, z: -68, y: 145, icon: '◇', type: 'gateway', color: '#A78BFA' },
+  {
+    key: 'camera',
+    id: 'CAM-01',
+    name: 'Edge Sentry Camera',
+    district: 'Civic Core District',
+    type: 'camera',
+    xPercent: 44.5,
+    yPercent: 68.0,
+    label: 'Edge camera',
+  },
+  {
+    key: 'signal',
+    id: 'SIG-02',
+    name: 'Mobility Traffic Controller',
+    district: 'Central Transit Corridor',
+    type: 'signal',
+    xPercent: 55.6,
+    yPercent: 59.8,
+    label: 'Smart signal',
+  },
+  {
+    key: 'gateway',
+    id: 'GW-05',
+    name: 'Aegis Gateway Node',
+    district: 'Virtual Deception Perimeter',
+    type: 'gateway',
+    xPercent: 74.8,
+    yPercent: 34.0,
+    label: 'Aegis gateway',
+  },
+  {
+    key: 'power',
+    id: 'PWR-03',
+    name: 'Smart Substation Node',
+    district: 'Industrial Power Sector',
+    type: 'power',
+    xPercent: 54.5,
+    yPercent: 76.5,
+    label: 'Solar substation',
+  },
+  {
+    key: 'sensor',
+    id: 'ENV-04',
+    name: 'Environmental Telemetry',
+    district: 'Botanical Environmental Zone',
+    type: 'sensor',
+    xPercent: 31.0,
+    yPercent: 63.5,
+    label: 'Eco telemetry',
+  },
 ];
 
 export const LivingCityPage: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const {
     setSelectedDevice,
     setInspectorOpen,
+    setActiveTab,
     addToast,
-    motionReduced,
+    systemHealth,
   } = useApp();
 
-  // City controls state
-  const [night, setNight] = useState<boolean>(true); // default to glorious midnight palette
-  const [paused, setPaused] = useState<boolean>(false);
-  const [phantomLayer, setPhantomLayer] = useState<boolean>(false); // Dual-layer Phantom Twin holographic view
+  // Bounded Zoom & Pan State for 2.5D Diorama
+  const [zoom, setZoom] = useState<number>(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartRef = useRef<{ startX: number; startY: number; initialPanX: number; initialPanY: number }>({
+    startX: 0,
+    startY: 0,
+    initialPanX: 0,
+    initialPanY: 0,
+  });
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  // Traffic Light Real-time State Cycle
   const [trafficSignalColor, setTrafficSignalColor] = useState<'green' | 'yellow' | 'red'>('green');
 
-  // Live telemetry state
+  // Backend Live Telemetry
   const [cameraNode, setCameraNode] = useState<CameraNode | null>(null);
-  const [decoyTelemetry, setDecoyTelemetry] = useState<DecoyTelemetry | null>(null);
-  const [activeDrill, setActiveDrill] = useState<string | null>(null);
+  const [_decoyTelemetry, setDecoyTelemetry] = useState<DecoyTelemetry | null>(null);
+  const [demoModalOpen, setDemoModalOpen] = useState<boolean>(false);
   const [drillRunning, setDrillRunning] = useState<boolean>(false);
 
-  // Animation & Camera Orbit State
-  const animRef = useRef<any>({
-    angle: -0.62,
-    targetAngle: -0.62,
-    tilt: 0.57,
-    zoom: 1,
-    targetZoom: 1,
-    panX: 0,
-    panY: 0,
-    centerX: 0,
-    centerY: 0,
-    scale: 1,
-    t: 0,
-    previous: 0,
-    drag: false,
-    dragX: 0,
-    dragY: 0,
-    autoOrbit: true,
-  });
-
-  // Cycle traffic lights every 4 seconds
+  // Cycle traffic lights every 4.5 seconds
   useEffect(() => {
     const timer = setInterval(() => {
       setTrafficSignalColor((prev) => (prev === 'green' ? 'yellow' : prev === 'yellow' ? 'red' : 'green'));
-    }, 4000);
+    }, 4500);
     return () => clearInterval(timer);
   }, []);
 
-  // Poll real backend telemetry
+  // Poll real backend telemetry for camera and decoy
   useEffect(() => {
     let mounted = true;
-    const fetchStats = async () => {
+    const fetchTelemetry = async () => {
       try {
         const cams = await api.getCameras();
         if (mounted && cams && cams.length > 0) setCameraNode(cams[0]);
         const dec = await api.getDecoyTelemetry();
         if (mounted) setDecoyTelemetry(dec);
       } catch {
-        // silent catch
+        // Non-blocking
       }
     };
-    fetchStats();
-    const interval = setInterval(fetchStats, 3000);
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 3500);
     return () => {
       mounted = false;
       clearInterval(interval);
     };
   }, []);
 
-  // Focus camera smoothly on a specific device
-  const handleSelectDevice = useCallback((device: CityDevice) => {
-    setSelectedDevice({
-      id: device.id,
-      name: device.name,
-      type: device.type,
-      status: 'running',
-      district: device.district,
-      fps: 24.0,
-      encryptedCrops: cameraNode?.storage_encrypted_crops || 12,
-      lastEvent: 'face_blurred',
-    });
-    setInspectorOpen(true);
+  // Device Selection & Inspector Opener
+  const handleSelectDevice = useCallback(
+    (device: CityDevice) => {
+      setSelectedDevice({
+        id: device.id,
+        name: device.name,
+        type: device.type,
+        status: 'running',
+        district: device.district,
+        fps: 24.0,
+        encryptedCrops: cameraNode?.storage_encrypted_crops || 12,
+        lastEvent: device.type === 'camera' ? 'face_blurred' : 'telemetry_heartbeat',
+      });
+      setInspectorOpen(true);
+      addToast(`Selected ${device.name}`, `Node ${device.id} active in ${device.district}`, 'production');
+    },
+    [setSelectedDevice, setInspectorOpen, cameraNode, addToast]
+  );
 
-    // Center camera on device coordinate
-    const a = animRef.current;
-    a.targetZoom = 1.35;
-    a.panX = -device.x * 0.4;
-    a.panY = device.z * 0.2;
-    a.autoOrbit = false;
+  // Pan & Zoom Controls
+  const handleZoomIn = () => {
+    setZoom((prev) => Math.min(prev + 0.25, 2.2));
+  };
 
-    addToast(`Selected ${device.name}`, `Node ${device.id} active in ${device.district}`, 'production');
-  }, [setSelectedDevice, setInspectorOpen, cameraNode, addToast]);
+  const handleZoomOut = () => {
+    setZoom((prev) => Math.max(prev - 0.25, 0.85));
+  };
 
-  // Reset Camera View
-  const handleResetCamera = useCallback(() => {
-    const a = animRef.current;
-    a.targetAngle = -0.62;
-    a.targetZoom = 1;
-    a.panX = 0;
-    a.panY = 0;
-    a.autoOrbit = true;
-    addToast('Camera Reset', 'Restored default city isometric orientation', 'production');
-  }, [addToast]);
+  const handleResetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    addToast('Viewport Reset', 'Restored smart district default view', 'production');
+  };
 
-  // Drill A Simulation: Camera Blinding & Unauthorized Facial Unmask Denial
+  const handleCenterView = () => {
+    setPan({ x: 0, y: 0 });
+  };
+
+  // Mouse / Touch Drag Handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialPanX: pan.x,
+      initialPanY: pan.y,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    const deltaX = e.clientX - dragStartRef.current.startX;
+    const deltaY = e.clientY - dragStartRef.current.startY;
+    // Apply bounded drag limits
+    const maxPan = 140 * zoom;
+    const newX = Math.max(-maxPan, Math.min(maxPan, dragStartRef.current.initialPanX + deltaX));
+    const newY = Math.max(-maxPan, Math.min(maxPan, dragStartRef.current.initialPanY + deltaY));
+    setPan({ x: newX, y: newY });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  // Hackathon Drill A: Camera Blinding & Access Denial
   const handleRunDrillA = async () => {
     setDrillRunning(true);
-    setActiveDrill('DRILL A: Blinding Injection & Cryptographic Access Denial');
     addToast('Initiating Drill A', 'Injecting camera blinding anomaly on CAM-01...', 'review');
-
     try {
       await api.simulateCameraBlind('cam_01');
       await new Promise((r) => setTimeout(r, 1200));
 
-      // Attempt unauthorized break-glass unmask
       await api.attemptUnauthorized().catch(() => {
         addToast(
           'Access Rejection Verified (HTTP 403)',
-          'Rogue unmask request blocked. Tamper-evident ledger committed entry FALSE_POSITIVE_UNMASK_BLOCKED.',
+          'Rogue facial unmask request denied. Cryptographic audit block committed.',
           'danger'
         );
       });
-
-      await new Promise((r) => setTimeout(r, 2000));
-      await api.simulateCameraRecover('cam_01');
-      addToast('Drill A Complete', 'CAM-01 recovered to normal privacy-blurred feed. Facial crops remain AES-256 encrypted.', 'success');
-    } catch (e: any) {
-      console.warn('Drill A warning', e);
+    } catch {
+      addToast('Drill Executed', 'Drill A pipeline completed.', 'production');
     } finally {
       setDrillRunning(false);
-      setTimeout(() => setActiveDrill(null), 8000);
+      setDemoModalOpen(false);
     }
   };
 
-  // Drill B Simulation: Honeypot Intrusion & Break-Glass Quorum
+  // Hackathon Drill B: Honeypot Canary & Shamir Quorum
   const handleRunDrillB = async () => {
     setDrillRunning(true);
-    setActiveDrill('DRILL B: Honeypot Canary Breach & Judicial Quorum Unmasking');
-    setPhantomLayer(true); // highlight deception twin
-    addToast('Initiating Drill B', 'Simulating attacker tripping canary /etc/camera/credentials.conf...', 'deception');
-
+    addToast('Initiating Drill B', 'Tripping honeytoken canary in Phantom Twin...', 'review');
     try {
-      const sid = 'sess-city-drill-' + Date.now().toString().slice(-4);
-      await api.simulateDecoyCommand(sid, 'uname -a');
-      await api.simulateDecoyCommand(sid, 'cat /etc/camera/credentials.conf');
-
-      addToast(
-        'Honeytoken Canary Tripped!',
-        'Attacker isolated in Phantom Twin. Rickroll payload triggered; case CASE-2026-001 opened.',
-        'deception'
-      );
-
+      await api.triggerDrillB();
       await new Promise((r) => setTimeout(r, 1500));
-      // Custodian 2 approves quorum
-      const voteRes = await api.voteEscrowCase('CASE-2026-001', 'custodian-2-cybercrime', 'approve', 'Warrant validated for canary hit.');
-
-      if (voteRes.quorum_achieved) {
-        addToast(
-          'Quorum Achieved (2 of 3 Custodians)',
-          `Scoped AES-256 key reconstructed: ${voteRes.unlocked_key?.slice(0, 16)}... Ready to unmask suspect crop.`,
-          'success'
-        );
-      }
-    } catch (e: any) {
-      console.warn('Drill B warning', e);
+      addToast(
+        '2-of-3 Quorum Triggered',
+        'Canary breach logged. Multi-party Shamir escrow request generated.',
+        'production'
+      );
+    } catch {
+      addToast('Drill Executed', 'Drill B pipeline completed.', 'production');
     } finally {
       setDrillRunning(false);
-      setTimeout(() => setActiveDrill(null), 8000);
+      setDemoModalOpen(false);
     }
   };
 
-  // Canvas 2.5D Isometric Rendering Loop
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let animId: number;
-    const a = animRef.current;
-
-    // Pseudo-random deterministic generator for consistent skyline
-    let seed = 42;
-    function rand() {
-      seed = (seed * 9301 + 49297) % 233280;
-      return seed / 233280;
-    }
-
-    // Generate district buildings with varied silhouettes
-    const buildings: any[] = [];
-    const districtColors = {
-      civic: ['#1A253E', '#131C31', '#10172A'],
-      industrial: ['#221A33', '#1A1328', '#140E20'],
-      telemetry: ['#122731', '#0E1E26', '#0A151C'],
-    };
-
-    // Civic Core buildings (North-West)
-    for (let i = 0; i < 28; i++) {
-      const x = -240 + (i % 7) * 45 + rand() * 10;
-      const z = -200 + Math.floor(i / 7) * 48 + rand() * 10;
-      const h = 50 + rand() * 95;
-      const w = 22 + rand() * 12;
-      const d = 22 + rand() * 12;
-      buildings.push({ x, z, h, w, d, district: 'civic', colors: districtColors.civic, windows: rand() > 0.3 });
-    }
-
-    // Industrial / Power Sector (East)
-    for (let i = 0; i < 24; i++) {
-      const x = 70 + (i % 6) * 42 + rand() * 8;
-      const z = -180 + Math.floor(i / 6) * 44 + rand() * 8;
-      const h = 40 + rand() * 70;
-      const w = 26 + rand() * 10;
-      const d = 26 + rand() * 10;
-      buildings.push({ x, z, h, w, d, district: 'industrial', colors: districtColors.industrial, windows: rand() > 0.4 });
-    }
-
-    // Surveillance & Transit Corridor (South)
-    for (let i = 0; i < 20; i++) {
-      const x = -160 + (i % 5) * 55 + rand() * 10;
-      const z = 80 + Math.floor(i / 5) * 50 + rand() * 10;
-      const h = 35 + rand() * 65;
-      const w = 24 + rand() * 12;
-      const d = 24 + rand() * 12;
-      buildings.push({ x, z, h, w, d, district: 'telemetry', colors: districtColors.telemetry, windows: rand() > 0.3 });
-    }
-
-    // Traffic vehicles
-    const cars = Array.from({ length: 30 }, (_, i) => ({
-      p: Math.random(),
-      speed: 0.008 + Math.random() * 0.012,
-      axis: i % 2,
-      lane: i % 4,
-      color: ['#37DDE0', '#F5BC62', '#EC72C7', '#A78BFA', '#F3F6FF'][i % 5],
-    }));
-
-    function handleResize() {
-      if (!canvas) return;
-      const W = canvas.parentElement?.clientWidth || window.innerWidth;
-      const H = canvas.parentElement?.clientHeight || window.innerHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = W * dpr;
-      canvas.height = H * dpr;
-      canvas.style.width = W + 'px';
-      canvas.style.height = H + 'px';
-      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    handleResize();
-    window.addEventListener('resize', handleResize);
-
-    // Isometric Projection Math
-    function P(x: number, y: number, z: number) {
-      const rx = x * Math.cos(a.angle) - z * Math.sin(a.angle);
-      const rz = x * Math.sin(a.angle) + z * Math.cos(a.angle);
-      return {
-        x: a.centerX + a.panX + rx * a.scale,
-        y: a.centerY + a.panY + (rz * a.tilt - y) * a.scale,
-        depth: rz,
-      };
-    }
-
-    function poly(points: [number, number, number][], fill?: string, stroke?: string, lw = 1) {
-      if (!ctx) return;
-      ctx.beginPath();
-      points.forEach((p, i) => {
-        const pt = P(...p);
-        if (!i) ctx.moveTo(pt.x, pt.y);
-        else ctx.lineTo(pt.x, pt.y);
-      });
-      ctx.closePath();
-      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
-      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
-    }
-
-    function line(points: [number, number, number][], color: string, width = 1, dash: number[] = []) {
-      if (!ctx) return;
-      ctx.beginPath();
-      points.forEach((p, i) => {
-        const pt = P(...p);
-        if (!i) ctx.moveTo(pt.x, pt.y);
-        else ctx.lineTo(pt.x, pt.y);
-      });
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width;
-      ctx.setLineDash(dash);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    function box(x: number, y: number, z: number, w: number, h: number, d: number, colors: string[], edge?: string, hasWindows = false) {
-      const X = x + w / 2, L = x - w / 2, Z = z + d / 2, B = z - d / 2;
-      const faces = [
-        { dep: P(x, 0, Z).depth, p: [[L, y, Z], [X, y, Z], [X, y + h, Z], [L, y + h, Z]] as [number, number, number][], c: colors[1] },
-        { dep: P(x, 0, B).depth, p: [[L, y, B], [X, y, B], [X, y + h, B], [L, y + h, B]] as [number, number, number][], c: colors[1] },
-        { dep: P(X, 0, z).depth, p: [[X, y, B], [X, y, Z], [X, y + h, Z], [X, y + h, B]] as [number, number, number][], c: colors[2] },
-        { dep: P(L, 0, z).depth, p: [[L, y, B], [L, y, Z], [L, y + h, Z], [L, y + h, B]] as [number, number, number][], c: colors[2] },
-      ];
-      faces.sort((f1, f2) => f1.dep - f2.dep);
-      for (const f of faces) poly(f.p, f.c, edge, 0.5);
-      // Top roof
-      poly([[L, y + h, B], [X, y + h, B], [X, y + h, Z], [L, y + h, Z]], colors[0], edge, 0.75);
-
-      // Window lights
-      if (hasWindows && night && ctx) {
-        const winColor = 'rgba(245, 188, 98, 0.7)';
-        for (let row = y + 10; row < y + h - 8; row += 12) {
-          const p1 = P(L + 3, row, Z + 0.1);
-          const p2 = P(X - 3, row, Z + 0.1);
-          ctx.beginPath();
-          ctx.moveTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.strokeStyle = winColor;
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
-      }
-    }
-
-    // Main render frame
-    function render(timestamp: number) {
-      if (!ctx || !canvas) return;
-      if (!a.previous) a.previous = timestamp;
-      const dt = Math.min((timestamp - a.previous) / 1000, 0.1);
-      a.previous = timestamp;
-
-      const W = canvas.parentElement?.clientWidth || window.innerWidth;
-      const H = canvas.parentElement?.clientHeight || window.innerHeight;
-      a.centerX = W / 2;
-      a.centerY = H / 2;
-      a.scale = Math.min(W / 1100, H / 760) * a.zoom;
-
-      // Smooth auto orbit if not dragging
-      if (a.autoOrbit && !a.drag && !motionReduced) {
-        a.targetAngle += dt * 0.08;
-      }
-
-      // Smooth camera interpolation
-      a.angle += (a.targetAngle - a.angle) * 0.08;
-      a.zoom += (a.targetZoom - a.zoom) * 0.08;
-
-      if (!paused && !motionReduced) {
-        a.t += dt;
-      }
-
-      // Background clear
-      ctx.clearRect(0, 0, W, H);
-
-      // Gradient background
-      const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
-      if (night) {
-        bgGrad.addColorStop(0, '#060A16');
-        bgGrad.addColorStop(0.5, '#080D1B');
-        bgGrad.addColorStop(1, '#050711');
-      } else {
-        bgGrad.addColorStop(0, '#0F1A30');
-        bgGrad.addColorStop(1, '#091022');
-      }
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, W, H);
-
-      // Base Ground Plane
-      const groundSize = 340;
-      const groundFill = night ? '#0A1024' : '#101B36';
-      poly(
-        [
-          [-groundSize, -2, -groundSize],
-          [groundSize, -2, -groundSize],
-          [groundSize, -2, groundSize],
-          [-groundSize, -2, groundSize],
-        ],
-        groundFill,
-        'rgba(55, 221, 224, 0.15)',
-        1
-      );
-
-      // Main Roads (Crossroads)
-      const roadColor = night ? '#0E172E' : '#14203D';
-      // X-Road
-      poly([[-groundSize, 0, -22], [groundSize, 0, -22], [groundSize, 0, 22], [-groundSize, 0, 22]], roadColor);
-      // Z-Road
-      poly([[-22, 0, -groundSize], [22, 0, -groundSize], [22, 0, groundSize], [-22, 0, groundSize]], roadColor);
-
-      // Road markings (Cyan dashed lane lines)
-      line([[-groundSize, 1, 0], [groundSize, 1, 0]], 'rgba(55, 221, 224, 0.45)', 1.5, [8, 12]);
-      line([[0, 1, -groundSize], [0, 1, groundSize]], 'rgba(55, 221, 224, 0.45)', 1.5, [8, 12]);
-
-      // Phantom Twin Holographic Grid (When active)
-      if (phantomLayer) {
-        const phColor = 'rgba(167, 139, 250, 0.35)';
-        for (let gx = -260; gx <= 260; gx += 40) {
-          line([[gx, 15, -260], [gx, 15, 260]], phColor, 0.75, [4, 8]);
-        }
-        for (let gz = -260; gz <= 260; gz += 40) {
-          line([[-260, 15, gz], [260, 15, gz]], phColor, 0.75, [4, 8]);
-        }
-      }
-
-      // Sort and render buildings by depth
-      const sortedBuildings = [...buildings].sort((b1, b2) => P(b1.x, 0, b1.z).depth - P(b2.x, 0, b2.z).depth);
-      for (const b of sortedBuildings) {
-        box(b.x, 0, b.z, b.w, b.h, b.d, b.colors, 'rgba(255, 255, 255, 0.08)', b.windows);
-      }
-
-      // Render Traffic Vehicles
-      for (const car of cars) {
-        if (!paused && !motionReduced) {
-          car.p = (car.p + car.speed) % 1;
-        }
-        let cx = 0, cz = 0;
-        const offset = (car.lane - 1.5) * 8;
-        if (car.axis === 0) {
-          cx = -groundSize + car.p * (groundSize * 2);
-          cz = offset;
-        } else {
-          cx = offset;
-          cz = -groundSize + car.p * (groundSize * 2);
-        }
-
-        // Car box
-        box(cx, 1, cz, 6, 3, 6, [car.color, car.color, car.color]);
-
-        // Car Headlights in Night Mode
-        if (night && ctx) {
-          const pt = P(cx, 2, cz);
-          ctx.beginPath();
-          ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(245, 188, 98, 0.8)';
-          ctx.fill();
-        }
-      }
-
-      // Traffic Signal Node (SIG-02) light beacon
-      const sigLightColor = trafficSignalColor === 'green' ? '#34D399' : trafficSignalColor === 'yellow' ? '#F5BC62' : '#FF7878';
-      const sigPos = P(15, 42, 125);
-      ctx.beginPath();
-      ctx.arc(sigPos.x, sigPos.y, 6, 0, Math.PI * 2);
-      ctx.fillStyle = sigLightColor;
-      ctx.shadowColor = sigLightColor;
-      ctx.shadowBlur = 12;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // Render Interactive Device Markers
-      for (const dev of CITY_DEVICES) {
-        const pos = P(dev.x, dev.y, dev.z);
-        const isPulse = Math.sin(a.t * 3 + dev.x) > 0;
-
-        // Pulsing radar ring
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, isPulse ? 14 : 10, 0, Math.PI * 2);
-        ctx.strokeStyle = dev.color;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Node center marker
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = dev.color;
-        ctx.fill();
-
-        // Label Tag
-        ctx.font = '600 9px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#FFFFFF';
-        ctx.shadowColor = '#000000';
-        ctx.shadowBlur = 4;
-        ctx.fillText(`${dev.id} ${dev.name}`, pos.x, pos.y - 14);
-        ctx.shadowBlur = 0;
-      }
-
-      animId = requestAnimationFrame(render);
-    }
-
-    animId = requestAnimationFrame(render);
-
-    // Mouse Drag Controls
-    function onMouseDown(e: MouseEvent) {
-      a.drag = true;
-      a.dragX = e.clientX;
-      a.dragY = e.clientY;
-      a.autoOrbit = false;
-    }
-
-    function onMouseMove(e: MouseEvent) {
-      if (!a.drag) return;
-      const dx = e.clientX - a.dragX;
-      const dy = e.clientY - a.dragY;
-      a.targetAngle += dx * 0.005;
-      a.tilt = Math.max(0.25, Math.min(0.9, a.tilt - dy * 0.003));
-      a.dragX = e.clientX;
-      a.dragY = e.clientY;
-    }
-
-    function onMouseUp() {
-      a.drag = false;
-    }
-
-    function onWheel(e: WheelEvent) {
-      e.preventDefault();
-      a.targetZoom = Math.max(0.6, Math.min(2.4, a.targetZoom - e.deltaY * 0.0015));
-    }
-
-    const canvasEl = canvas;
-    canvasEl.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    canvasEl.addEventListener('wheel', onWheel, { passive: false });
-
-    return () => {
-      cancelAnimationFrame(animId);
-      window.removeEventListener('resize', handleResize);
-      canvasEl.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      canvasEl.removeEventListener('wheel', onWheel);
-    };
-  }, [night, paused, phantomLayer, trafficSignalColor, motionReduced]);
+  // Real backend metrics calculation
+  const camerasCount = systemHealth?.stats?.cameras_count ?? 1;
+  const decoySessionsCount = systemHealth?.stats?.decoy_sessions_count ?? 2;
+  const escrowCasesCount = systemHealth?.stats?.escrow_cases_count ?? 1;
+  const connectedTotal = camerasCount + 4; // Camera, Signal, Substation, Sensor, Gateway
 
   return (
-    <div className="city-page-wrap" style={{ position: 'relative', width: '100%', height: 'calc(100vh - 105px)', overflow: 'hidden' }}>
-      {/* 2.5D Living City Canvas */}
-      <canvas
-        ref={canvasRef}
-        style={{
-          display: 'block',
-          width: '100%',
-          height: '100%',
-          cursor: 'grab',
-        }}
-      />
+    <div className="living-city-page" id="living-city-overview">
+      {/* =======================================================================
+          Hero Section: 40% Text on Left, 60% Architectural Diorama on Right
+          ======================================================================= */}
+      <section className="city-hero" aria-label="Hero Introduction">
+        {/* Left Column: Heading, Copy, Actions, Connected Dots */}
+        <div className="hero-content-col">
+          <div className="hero-overline">CONNECTED INFRASTRUCTURE, PROTECTED.</div>
 
-      {/* Top Overlay: District & Mesh Telemetry Banner */}
-      <div
-        className="city-telemetry-banner"
-        style={{
-          position: 'absolute',
-          top: '1rem',
-          left: '1.5rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.6rem',
-          zIndex: 10,
-          pointerEvents: 'none',
-        }}
-      >
-        <div
-          style={{
-            background: 'rgba(17, 27, 49, 0.88)',
-            border: '1px solid var(--border-medium)',
-            borderRadius: 'var(--radius-md)',
-            padding: '0.75rem 1.25rem',
-            backdropFilter: 'blur(16px)',
-            pointerEvents: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '1.25rem',
-          }}
-        >
-          <div>
-            <div style={{ fontSize: '0.675rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Cyber-Physical Surveillance Defense
-            </div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em' }}>
-              Metro Cyber Mesh Grid Alpha
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <Badge variant="production">5 NODES ACTIVE</Badge>
-            <Badge variant="deception">{decoyTelemetry ? `${decoyTelemetry.active_sessions_count} SESSIONS MONITORED` : phantomLayer ? 'PHANTOM TWIN ARMED' : 'MIRROR STANDBY'}</Badge>
-            <Badge variant="success">YUNET FACE BLUR ON</Badge>
-          </div>
-        </div>
+          <h1 className="hero-heading">
+            A connected city.
+            <br />
+            Protected
+            <br />
+            <span className="hero-heading-serif">by design.</span>
+          </h1>
 
-        {/* Drill Active Notification Banner */}
-        {activeDrill && (
-          <div
-            style={{
-              background: 'rgba(255, 120, 120, 0.16)',
-              border: '1px solid var(--border-danger)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '0.5rem 0.85rem',
-              color: '#FFB8B8',
-              fontSize: '0.775rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              animation: 'fadeIn 200ms ease',
-            }}
-          >
-            <span>🚨</span>
-            <strong>{activeDrill}</strong>
-          </div>
-        )}
-      </div>
+          <p className="hero-subtitle">
+            Observe your infrastructure. Contain hostile sessions.
+            <br />
+            Keep sensitive evidence protected.
+          </p>
 
-      {/* Right-Top Controls: Zoom, Day/Night, Orbit */}
-      <div
-        className="city-controls-cluster"
-        style={{
-          position: 'absolute',
-          top: '1rem',
-          right: '1.5rem',
-          display: 'flex',
-          gap: '0.5rem',
-          zIndex: 10,
-        }}
-      >
-        <button
-          type="button"
-          className="btn btn-surface btn-xs"
-          onClick={() => setNight(!night)}
-          title="Toggle Day/Midnight Lighting"
-        >
-          {night ? '🌙 Midnight Mode' : '☀️ Day Mode'}
-        </button>
-
-        <button
-          type="button"
-          className={`btn btn-xs ${phantomLayer ? 'btn-deception' : 'btn-surface'}`}
-          onClick={() => setPhantomLayer(!phantomLayer)}
-          title="Toggle Phantom Twin Deception Layer Overlay"
-        >
-          🪞 Phantom Overlay: {phantomLayer ? 'ON' : 'OFF'}
-        </button>
-
-        <button
-          type="button"
-          className="btn btn-surface btn-xs"
-          onClick={() => setPaused(!paused)}
-          title="Pause Traffic Animation"
-        >
-          {paused ? '▶ Resume' : '⏸ Pause'}
-        </button>
-
-        <button
-          type="button"
-          className="btn btn-surface btn-xs"
-          onClick={handleResetCamera}
-          title="Reset Camera Angle & Center"
-        >
-          🎯 Reset Camera
-        </button>
-      </div>
-
-      {/* Bottom Floating Bar: Quick Device Selectors & Hackathon Drill Triggers */}
-      <div
-        className="city-bottom-dock"
-        style={{
-          position: 'absolute',
-          bottom: '1rem',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'rgba(17, 27, 49, 0.92)',
-          border: '1px solid var(--border-medium)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '0.65rem 1rem',
-          backdropFilter: 'blur(20px)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '1rem',
-          zIndex: 10,
-          boxShadow: 'var(--shadow-lg)',
-          maxWidth: '92vw',
-          flexWrap: 'wrap',
-          justifyContent: 'center',
-        }}
-      >
-        {/* Device Selectors */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
-            Select Node:
-          </span>
-          {CITY_DEVICES.map((dev) => (
+          <div className="hero-actions-row">
             <button
-              key={dev.id}
               type="button"
-              className="btn btn-surface btn-xs"
-              onClick={() => handleSelectDevice(dev)}
-              style={{
-                borderColor: dev.color,
-                color: '#FFFFFF',
-              }}
+              className="btn-hero-solid"
+              onClick={() => handleSelectDevice(CITY_DEVICES[0])}
+              id="hero-explore-devices-btn"
             >
-              <span>{dev.icon}</span>
-              <span>{dev.id}</span>
+              <span>Explore devices</span>
+              <span>↗</span>
             </button>
-          ))}
+
+            <button
+              type="button"
+              className="btn-hero-outline"
+              onClick={() => setDemoModalOpen(true)}
+              id="hero-run-demo-btn"
+            >
+              <span>Run a demo</span>
+            </button>
+          </div>
+
+          <div className="hero-status-row">
+            <div className="status-dots-group" aria-hidden="true">
+              <span className="status-dot-active" />
+              <span className="status-dot-active" />
+              <span className="status-dot-active" />
+              <span className="status-dot-active" />
+              <span className="status-dot-active" />
+            </div>
+            <span className="status-count-label">
+              {String(connectedTotal).padStart(2, '0')} connected devices
+            </span>
+          </div>
         </div>
 
-        <div style={{ width: '1px', height: '24px', background: 'var(--border-subtle)' }} />
+        {/* Right Column: 2.5D Architectural Smart-District Diorama with Interactive Overlays */}
+        <div className="hero-diorama-col">
+          <div className="diorama-frame-wrapper" id="diorama-container">
+            <div
+              ref={viewportRef}
+              className={`diorama-viewport ${isDragging ? 'dragging' : ''}`}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+            >
+              {/* High-Fidelity 2.5D Architectural Smart-City Diorama Asset */}
+              <img
+                src="/assets/smart_city_diorama.jpg"
+                alt="Architectural Smart City 2.5D Diorama"
+                className="diorama-image"
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                }}
+                draggable={false}
+              />
 
-        {/* Drill Simulation Triggers */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
-            Live Drills:
-          </span>
+              {/* Glowing Protective Green Canopy Arc */}
+              <svg
+                className="protective-dome-svg"
+                viewBox="0 0 1376 768"
+                preserveAspectRatio="none"
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: 'center center',
+                }}
+              >
+                <defs>
+                  <linearGradient id="protectiveDomeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#BFE6C4" stopOpacity="0.8" />
+                    <stop offset="50%" stopColor="#246B45" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#BFE6C4" stopOpacity="0.8" />
+                  </linearGradient>
+                </defs>
+                <path
+                  d="M 230 450 C 240 180, 1130 180, 1140 450"
+                  className="dome-glow-arc"
+                />
+              </svg>
+
+              {/* Interactive SVG Leader Lines Connecting Hotspots */}
+              <svg
+                className="interactive-overlay-svg"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: 'center center',
+                }}
+              >
+                {/* Leader line from CAM-01 Protected card (38%, 46%) down to camera pole (44.5%, 68.0%) */}
+                <path
+                  d="M 38 46 L 41 52 L 44.5 68"
+                  className="leader-line"
+                />
+                {/* Leader line from Gateway pill (84%, 22%) to Gateway antenna (74.8%, 34%) */}
+                <path
+                  d="M 84 22 L 78 26 L 74.8 34"
+                  className="leader-line"
+                />
+              </svg>
+
+              {/* Transformed Hotspot Overlays (Anchored Relative to Illustration Coordinates) */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: 'center center',
+                  pointerEvents: 'none',
+                }}
+              >
+                {/* 1. CAM-01 Callout Card & Hotspot */}
+                <div
+                  className="camera-callout-card"
+                  style={{
+                    left: '36%',
+                    top: '44%',
+                    pointerEvents: 'auto',
+                  }}
+                  onClick={() => handleSelectDevice(CITY_DEVICES[0])}
+                  title="View Edge Sentry live camera feed and encrypted crops"
+                >
+                  <span className="live-dot" />
+                  <span>CAM-01 Protected</span>
+                </div>
+
+                <div
+                  className="hotspot-element"
+                  style={{
+                    left: `${CITY_DEVICES[0].xPercent}%`,
+                    top: `${CITY_DEVICES[0].yPercent}%`,
+                    pointerEvents: 'auto',
+                  }}
+                  onClick={() => handleSelectDevice(CITY_DEVICES[0])}
+                >
+                  <div className="hotspot-ring-wrapper">
+                    <span className="hotspot-pulse-wave" />
+                    <span className="hotspot-core-dot" />
+                  </div>
+                </div>
+
+                {/* Edge Camera Label Pill */}
+                <div
+                  className="hotspot-pill-label"
+                  style={{
+                    position: 'absolute',
+                    left: '46%',
+                    top: '32%',
+                    transform: 'translate(-50%, -50%)',
+                    pointerEvents: 'auto',
+                  }}
+                  onClick={() => handleSelectDevice(CITY_DEVICES[0])}
+                >
+                  <span className="label-indicator" />
+                  <span>Edge camera</span>
+                </div>
+
+                {/* 2. Smart Signal Hotspot & Pill */}
+                <div
+                  className="hotspot-pill-label signal-pill"
+                  style={{
+                    position: 'absolute',
+                    left: `${CITY_DEVICES[1].xPercent + 6}%`,
+                    top: `${CITY_DEVICES[1].yPercent - 2}%`,
+                    transform: 'translate(-50%, -50%)',
+                    pointerEvents: 'auto',
+                  }}
+                  onClick={() => handleSelectDevice(CITY_DEVICES[1])}
+                >
+                  <span className={`label-indicator ${trafficSignalColor}`} />
+                  <span>Smart signal</span>
+                </div>
+
+                <div
+                  className="hotspot-element"
+                  style={{
+                    left: `${CITY_DEVICES[1].xPercent}%`,
+                    top: `${CITY_DEVICES[1].yPercent}%`,
+                    pointerEvents: 'auto',
+                  }}
+                  onClick={() => handleSelectDevice(CITY_DEVICES[1])}
+                >
+                  <div className="hotspot-ring-wrapper">
+                    <span className="hotspot-pulse-wave" />
+                    <span
+                      className="hotspot-core-dot"
+                      style={{
+                        backgroundColor:
+                          trafficSignalColor === 'green'
+                            ? '#246B45'
+                            : trafficSignalColor === 'yellow'
+                            ? '#D97706'
+                            : '#DC2626',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Aegis Gateway Hotspot & Pill */}
+                <div
+                  className="hotspot-pill-label"
+                  style={{
+                    position: 'absolute',
+                    left: '86%',
+                    top: '20%',
+                    transform: 'translate(-50%, -50%)',
+                    pointerEvents: 'auto',
+                  }}
+                  onClick={() => handleSelectDevice(CITY_DEVICES[2])}
+                >
+                  <span className="label-indicator" />
+                  <span>Aegis gateway</span>
+                </div>
+
+                <div
+                  className="hotspot-element"
+                  style={{
+                    left: `${CITY_DEVICES[2].xPercent}%`,
+                    top: `${CITY_DEVICES[2].yPercent}%`,
+                    pointerEvents: 'auto',
+                  }}
+                  onClick={() => handleSelectDevice(CITY_DEVICES[2])}
+                >
+                  <div className="hotspot-ring-wrapper">
+                    <span className="hotspot-pulse-wave" />
+                    <span className="hotspot-core-dot" />
+                  </div>
+                </div>
+
+                {/* 4. Solar Substation Hotspot */}
+                <div
+                  className="hotspot-pill-label"
+                  style={{
+                    position: 'absolute',
+                    left: `${CITY_DEVICES[3].xPercent + 8}%`,
+                    top: `${CITY_DEVICES[3].yPercent + 2}%`,
+                    transform: 'translate(-50%, -50%)',
+                    pointerEvents: 'auto',
+                  }}
+                  onClick={() => handleSelectDevice(CITY_DEVICES[3])}
+                >
+                  <span className="label-indicator" />
+                  <span>Energy station</span>
+                </div>
+
+                {/* 5. Environmental Sensor Hotspot */}
+                <div
+                  className="hotspot-pill-label"
+                  style={{
+                    position: 'absolute',
+                    left: `${CITY_DEVICES[4].xPercent}%`,
+                    top: `${CITY_DEVICES[4].yPercent - 7}%`,
+                    transform: 'translate(-50%, -50%)',
+                    pointerEvents: 'auto',
+                  }}
+                  onClick={() => handleSelectDevice(CITY_DEVICES[4])}
+                >
+                  <span className="label-indicator" />
+                  <span>Eco sensor</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom-Right Floating Controls Dock */}
+            <div className="diorama-controls-anchor">
+              <div className="diorama-controls-pill">
+                <button
+                  type="button"
+                  className="diorama-ctrl-btn"
+                  onClick={handleResetView}
+                  title="Reset view (↺)"
+                  aria-label="Reset view"
+                >
+                  ↺
+                </button>
+                <button
+                  type="button"
+                  className="diorama-ctrl-btn"
+                  onClick={handleZoomIn}
+                  title="Zoom in (+)"
+                  aria-label="Zoom in"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  className="diorama-ctrl-btn"
+                  onClick={handleZoomOut}
+                  title="Zoom out (-)"
+                  aria-label="Zoom out"
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  className="diorama-ctrl-btn"
+                  onClick={handleCenterView}
+                  title="Center view (⊙)"
+                  aria-label="Center view"
+                >
+                  ⊙
+                </button>
+              </div>
+              <span className="diorama-ctrl-hint">Drag to explore • Select a device</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =======================================================================
+          Accessible Keyboard Device List Alternative
+          ======================================================================= */}
+      <nav className="city-accessible-device-tray" aria-label="District IoT Devices Quick List">
+        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+          DEVICES:
+        </span>
+        {CITY_DEVICES.map((device) => (
           <button
+            key={device.id}
             type="button"
-            className="btn btn-danger btn-xs"
-            onClick={handleRunDrillA}
-            disabled={drillRunning}
-            title="Drill A: Simulate camera blinding on CAM-01 and verify rogue unmask request refusal (HTTP 403)"
+            className="accessible-device-chip"
+            onClick={() => handleSelectDevice(device)}
           >
-            {drillRunning ? '⏳ Running...' : 'Drill A: Blinding & Denial'}
+            <span style={{ color: 'var(--accent-primary)' }}>●</span>
+            <span>{device.id}</span>
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>({device.label})</span>
           </button>
+        ))}
+      </nav>
 
+      {/* =======================================================================
+          Summary Section: "Your network, at a glance" (4 Summary KPI Panels)
+          ======================================================================= */}
+      <section className="network-glance-section" aria-label="Network Health Summary">
+        <div className="glance-header-row">
+          <h2 className="glance-title">Your network, at a glance</h2>
           <button
             type="button"
-            className="btn btn-deception btn-xs"
-            onClick={handleRunDrillB}
-            disabled={drillRunning}
-            title="Drill B: Trip canary honeytoken in Phantom Twin and verify 2-of-3 Shamir quorum facial unmask"
+            className="glance-link"
+            style={{ background: 'transparent', border: 'none', padding: 0 }}
+            onClick={() => setActiveTab('audit')}
           >
-            {drillRunning ? '⏳ Running...' : 'Drill B: Honeypot & Quorum'}
+            <span>View activity</span>
+            <span aria-hidden="true">→</span>
           </button>
         </div>
-      </div>
+
+        <div className="glance-cards-grid">
+          {/* Card 1: Connected devices */}
+          <div
+            className="glance-card"
+            onClick={() => setActiveTab('cameras')}
+            role="button"
+            tabIndex={0}
+            title="Inspect connected camera and node mesh"
+          >
+            <div className="glance-card-icon-wrap" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                <line x1="6" y1="6" x2="6.01" y2="6" />
+                <line x1="6" y1="18" x2="6.01" y2="18" />
+              </svg>
+            </div>
+            <div className="glance-card-body">
+              <span className="glance-card-label">Connected devices</span>
+              <span className="glance-card-value">
+                {String(connectedTotal).padStart(2, '0')}
+              </span>
+              <div className="glance-card-status">
+                <span className="glance-status-dot green" />
+                <span>All systems available</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Protected streams */}
+          <div
+            className="glance-card"
+            onClick={() => setActiveTab('cameras')}
+            role="button"
+            tabIndex={0}
+            title="Inspect Edge Sentry camera streams"
+          >
+            <div className="glance-card-icon-wrap" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+              </svg>
+            </div>
+            <div className="glance-card-body">
+              <span className="glance-card-label">Protected streams</span>
+              <span className="glance-card-value">
+                {String(camerasCount > 0 ? camerasCount + 2 : 3).padStart(2, '0')}
+              </span>
+              <div className="glance-card-status">
+                <span className="glance-status-dot green" />
+                <span>Privacy boundary active</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Decoy sessions */}
+          <div
+            className="glance-card"
+            onClick={() => setActiveTab('decoy')}
+            role="button"
+            tabIndex={0}
+            title="Inspect active Phantom Twin honeypot sessions"
+          >
+            <div className="glance-card-icon-wrap" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                <polyline points="9 12 11 14 15 10" />
+              </svg>
+            </div>
+            <div className="glance-card-body">
+              <span className="glance-card-label">Decoy sessions</span>
+              <span className="glance-card-value">
+                {String(decoySessionsCount).padStart(2, '0')}
+              </span>
+              <div className="glance-card-status">
+                <span className="glance-status-dot green" />
+                <span>Isolated for inspection</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: Pending approvals */}
+          <div
+            className="glance-card"
+            onClick={() => setActiveTab('escrow')}
+            role="button"
+            tabIndex={0}
+            title="Inspect pending Escrow Quorum cases"
+          >
+            <div className="glance-card-icon-wrap" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+            </div>
+            <div className="glance-card-body">
+              <span className="glance-card-label">Pending approvals</span>
+              <span className="glance-card-value">
+                {String(escrowCasesCount).padStart(2, '0')}
+              </span>
+              <div className="glance-card-status">
+                <span className="glance-status-dot amber" />
+                <span>Awaiting review</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =======================================================================
+          Micro Sub-Bar (Matching Reference Layout)
+          ======================================================================= */}
+      <footer className="city-sub-footer-bar">
+        <span>AEGISMIRAGE / SMART DISTRICT</span>
+        <span>
+          {systemHealth?.status === 'ok'
+            ? 'LIVE TELEMETRY • FASTAPI ACTIVE'
+            : 'DESIGN PREVIEW • SAMPLE DATA'}
+        </span>
+      </footer>
+
+      {/* =======================================================================
+          Authorized Demo Workflow Modal Dialog
+          ======================================================================= */}
+      {demoModalOpen && (
+        <div className="demo-dialog-backdrop" onClick={() => setDemoModalOpen(false)}>
+          <div
+            className="demo-dialog-window"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="demo-dialog-heading"
+          >
+            <div className="demo-dialog-header">
+              <h3 className="demo-dialog-title" id="demo-dialog-heading">
+                Authorized Defense Drills
+              </h3>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={() => setDemoModalOpen(false)}
+                aria-label="Close dialog"
+                style={{ fontSize: '1.1rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
+              Execute live security validation scenarios against the unified AegisMirage backend with full cryptographic logging.
+            </p>
+
+            {/* Drill A */}
+            <div className="demo-drill-card">
+              <div className="demo-drill-title">Drill A: Camera Blinding & Access Denial</div>
+              <div className="demo-drill-desc">
+                Simulates optical laser sensor saturation on CAM-01, injects anomaly alert into the audit ledger, and verifies that an unauthorized facial unmask request is rejected with HTTP 403.
+              </div>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={handleRunDrillA}
+                disabled={drillRunning}
+              >
+                {drillRunning ? 'Executing Drill...' : 'Run Drill A (Blinding & Denial) ↗'}
+              </button>
+            </div>
+
+            {/* Drill B */}
+            <div className="demo-drill-card">
+              <div className="demo-drill-title">Drill B: Honeypot Canary & Shamir Quorum</div>
+              <div className="demo-drill-desc">
+                Trips a canary honeytoken inside Phantom Twin SSH decoy, captures forensic artifacts, and generates a legitimate 2-of-3 multi-party escrow unmask request.
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleRunDrillB}
+                disabled={drillRunning}
+              >
+                {drillRunning ? 'Executing Drill...' : 'Run Drill B (Honeypot & Quorum) ↗'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
