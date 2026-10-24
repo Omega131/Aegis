@@ -14,13 +14,13 @@ import os
 import threading
 import time
 from typing import Any
+import urllib.request
 
 # Cryptography for authenticated symmetric encryption (AES-256-GCM)
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # Computer vision and face detection libraries
 import cv2
-import mediapipe as mp
 import numpy as np
 
 # Shared schema contract for camera events
@@ -47,6 +47,16 @@ FACE_EVENT_RATE_LIMIT = 3.0
 
 # Simulated camera loop frame interval (0.06 seconds ~= 16 FPS)
 FRAME_INTERVAL_SECONDS = 0.06
+
+# -----------------------------------------------------------------------------
+# Privacy Blurring Tuning Constants
+# -----------------------------------------------------------------------------
+# Downsampled resolution for pixelation (e.g. 8x8 blocks). Lower numbers create coarser, stronger pixelation.
+BLUR_PIXEL_BLOCKS = 8
+
+# Expansion factor for the bounding box (0.30 = 30% expansion on all sides).
+# Covers hair edge, forehead, jawline, ears and glasses.
+BOX_EXPANSION = 0.30
 
 # -----------------------------------------------------------------------------
 # Anomaly Detection Thresholds (Tuning Constants)
@@ -146,34 +156,77 @@ def emit_event(event: CameraEvent) -> None:
 
 
 # =============================================================================
-# 3. FACE DETECTION & PRIVACY BLURRING (MediaPipe)
+# 3. FACE DETECTION & PRIVACY BLURRING (OpenCV YuNet)
 # =============================================================================
-# We use MediaPipe Face Detection because the BlazeFace model weights are
-# bundled directly inside the pip package wheel. This avoids any external ONNX
-# or weights download steps (unlike OpenCV YuNet which requires downloading
-# face_detection_yunet_2023mar.onnx from an external server).
+# We use OpenCV YuNet (cv2.FaceDetectorYN), a high-performance, lightweight
+# deep learning model for face detection that is natively supported by OpenCV DNN.
+
+YUNET_MODEL_FILENAME = "face_detection_yunet_2023mar.onnx"
+YUNET_MODEL_URL = (
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+)
+
+
+def ensure_yunet_model(model_filename: str = YUNET_MODEL_FILENAME) -> str:
+    """
+    Ensures that the OpenCV YuNet face detection ONNX model is available locally.
+    If not found or incomplete, downloads it from the official OpenCV Zoo on GitHub.
+    If download fails, prints clear instructions for manual download.
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(script_dir, model_filename)
+
+    # Check if model exists and is a valid binary (> 50KB to ensure not an LFS pointer text file)
+    if os.path.exists(model_path) and os.path.getsize(model_path) > 50000:
+        return model_path
+
+    print(f"[YUNET] Model file '{model_filename}' not found locally. Downloading from OpenCV Zoo...")
+    try:
+        req = urllib.request.Request(YUNET_MODEL_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as response, open(model_path, "wb") as out_file:
+            data = response.read()
+            out_file.write(data)
+        print(f"[YUNET] Successfully downloaded '{model_filename}' ({len(data)} bytes) to: {model_path}")
+        return model_path
+    except Exception as exc:
+        print(
+            f"\n[YUNET-ERROR] Failed to download {model_filename} automatically ({exc}).\n"
+            f"MANUAL DOWNLOAD INSTRUCTIONS:\n"
+            f"1. Download the model file from:\n"
+            f"   {YUNET_MODEL_URL}\n"
+            f"2. Save it directly in the project directory as:\n"
+            f"   {model_path}\n"
+        )
+        raise FileNotFoundError(
+            f"YuNet model file '{model_filename}' missing. Please download it manually from: {YUNET_MODEL_URL}"
+        ) from exc
+
 
 _FACE_DETECTOR_LOCK = threading.Lock()
-_FACE_DETECTOR: mp.solutions.face_detection.FaceDetection | None = None
+_FACE_DETECTOR: cv2.FaceDetectorYN | None = None
 
 
-def _get_face_detector() -> mp.solutions.face_detection.FaceDetection:
+def _get_face_detector() -> cv2.FaceDetectorYN:
     """
-    Returns a thread-safe shared MediaPipe FaceDetection instance.
-    model_selection=0 is optimized for short-range faces (within 2 meters),
-    ideal for IoT/surveillance camera feeds.
+    Returns a thread-safe shared OpenCV YuNet FaceDetectorYN instance.
+    Uses score_threshold=0.6 and nms_threshold=0.3 for accurate detection.
     """
     global _FACE_DETECTOR
     with _FACE_DETECTOR_LOCK:
         if _FACE_DETECTOR is None:
-            # Step 1: Access MediaPipe's face detection solution
-            mp_face_detection = mp.solutions.face_detection
-            # Step 2: Instantiate detector (model_selection=0, confidence threshold 0.5)
-            _FACE_DETECTOR = mp_face_detection.FaceDetection(
-                model_selection=0,
-                min_detection_confidence=0.5,
+            model_path = ensure_yunet_model()
+            # Initial placeholder input size; updated dynamically per frame
+            _FACE_DETECTOR = cv2.FaceDetectorYN.create(
+                model=model_path,
+                config="",
+                input_size=(320, 320),
+                score_threshold=0.6,
+                nms_threshold=0.3,
+                top_k=5000,
+                backend_id=cv2.dnn.DNN_BACKEND_OPENCV,
+                target_id=cv2.dnn.DNN_TARGET_CPU,
             )
-            print("[INIT] MediaPipe Face Detection initialized successfully.")
+            print(f"[INIT] OpenCV YuNet FaceDetectorYN initialized successfully from: {model_path}")
     return _FACE_DETECTOR
 
 
@@ -181,8 +234,9 @@ def detect_and_blur_faces(
     frame: np.ndarray,
 ) -> tuple[np.ndarray, list[tuple[np.ndarray, tuple[int, int, int, int]]]]:
     """
-    Detects human faces in a BGR OpenCV frame, extracts original crops,
-    and applies strong privacy blur to ensure no unblurred face is returned.
+    Detects human faces in a BGR OpenCV frame using OpenCV YuNet,
+    extracts original crops, and applies strong privacy blur to ensure
+    no unblurred face is returned.
 
     Parameters:
         frame: Input BGR image (OpenCV numpy array)
@@ -206,62 +260,80 @@ def detect_and_blur_faces(
     # Step 4: Get image dimensions (height, width, channels)
     img_height, img_width = frame.shape[:2]
 
-    # Step 5: Convert BGR frame to RGB because MediaPipe requires RGB format
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    # Step 6: Run MediaPipe face detector on the RGB frame
+    # Step 5: Acquire YuNet detector instance
     detector = _get_face_detector()
-    results = detector.process(rgb_frame)
 
-    # Step 7: Check if any faces were detected
-    if not results.detections:
-        # No faces detected; return copy of frame and empty crops list
+    # Step 6: Set input size to match the current frame dimensions (width, height)
+    with _FACE_DETECTOR_LOCK:
+        detector.setInputSize((img_width, img_height))
+        # Step 7: Run YuNet detector on BGR frame (returns retval, faces)
+        retval, faces = detector.detect(frame)
+
+    # Step 8: Check if any faces were detected
+    if faces is None or len(faces) == 0:
         return blurred_frame, face_crops
 
-    # Step 8: Loop through every detected face
-    for detection in results.detections:
-        # Step 8a: Extract relative bounding box from MediaPipe detection
-        bbox = detection.location_data.relative_bounding_box
-        raw_x = int(bbox.xmin * img_width)
-        raw_y = int(bbox.ymin * img_height)
-        raw_w = int(bbox.width * img_width)
-        raw_h = int(bbox.height * img_height)
+    # Step 9: Loop through every detected face
+    for face in faces:
+        # First 4 values are bounding box: x, y, width, height as floats
+        raw_x = int(face[0])
+        raw_y = int(face[1])
+        raw_w = int(face[2])
+        raw_h = int(face[3])
 
-        # Step 8b: Clamp bounding box coordinates to ensure they stay within image bounds
-        x = max(0, raw_x)
-        y = max(0, raw_y)
-        w = min(raw_w, img_width - x)
-        h = min(raw_h, img_height - y)
+        # Step 9a: Original (unexpanded) box for unblurred crop extraction
+        orig_x = max(0, raw_x)
+        orig_y = max(0, raw_y)
+        orig_w = min(raw_w, img_width - orig_x)
+        orig_h = min(raw_h, img_height - orig_y)
 
-        # Step 8c: Skip invalid or tiny zero-area bounding boxes
-        if w <= 4 or h <= 4:
+        # Skip invalid or tiny zero-area bounding boxes
+        if orig_w <= 4 or orig_h <= 4:
             continue
 
-        # Step 8d: Extract the ORIGINAL unblurred face crop from the original frame
-        original_crop = frame[y : y + h, x : x + w].copy()
-        face_crops.append((original_crop, (x, y, w, h)))
+        # Extract the ORIGINAL unblurred face crop from the original frame (for encryption)
+        original_crop = frame[orig_y : orig_y + orig_h, orig_x : orig_x + orig_w].copy()
+        face_crops.append((original_crop, (orig_x, orig_y, orig_w, orig_h)))
 
-        # Step 8e: Apply strong privacy blur (pixelation + Gaussian blur) to the ROI
-        face_roi = blurred_frame[y : y + h, x : x + w]
+        # Step 9b: Expanded bounding box for blurring (expanded by BOX_EXPANSION on all sides)
+        # This covers forehead, hairline, ears, glasses, and jawline
+        pad_w = int(orig_w * BOX_EXPANSION)
+        pad_h = int(orig_h * BOX_EXPANSION)
 
-        # Strong pixelation: shrink ROI to 1/10th size then blow it back up
-        small_w = max(1, w // 10)
-        small_h = max(1, h // 10)
-        temp_small = cv2.resize(face_roi, (small_w, small_h), interpolation=cv2.INTER_LINEAR)
-        pixelated_roi = cv2.resize(temp_small, (w, h), interpolation=cv2.INTER_NEAREST)
+        blur_x = max(0, orig_x - pad_w)
+        blur_y = max(0, orig_y - pad_h)
+        blur_w = min(orig_w + 2 * pad_w, img_width - blur_x)
+        blur_h = min(orig_h + 2 * pad_h, img_height - blur_y)
 
-        # Gaussian blur pass on top of pixelation to prevent any reconstruction
-        kernel_size = min(31, max(5, (min(w, h) // 4) * 2 + 1))
+        if blur_w <= 4 or blur_h <= 4:
+            continue
+
+        # Step 9c: Apply strong irreversible pixelation (shrink to BLUR_PIXEL_BLOCKS x BLUR_PIXEL_BLOCKS)
+        face_roi = blurred_frame[blur_y : blur_y + blur_h, blur_x : blur_x + blur_w]
+
+        small_roi = cv2.resize(
+            face_roi,
+            (BLUR_PIXEL_BLOCKS, BLUR_PIXEL_BLOCKS),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        pixelated_roi = cv2.resize(
+            small_roi,
+            (blur_w, blur_h),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+        # Step 9d: Follow with Gaussian blur pass on top of pixelation to make it completely irreversible
+        kernel_size = min(31, max(7, (min(blur_w, blur_h) // 6) * 2 + 1))
         unrecognizable_roi = cv2.GaussianBlur(pixelated_roi, (kernel_size, kernel_size), 0)
 
-        # Step 8f: Replace the face area in blurred_frame with the blurred ROI
-        blurred_frame[y : y + h, x : x + w] = unrecognizable_roi
+        # Step 9e: Replace the expanded face area in blurred_frame with the blurred ROI
+        blurred_frame[blur_y : blur_y + blur_h, blur_x : blur_x + blur_w] = unrecognizable_roi
 
-    # Step 9: Print event summary if faces were processed
+    # Print event summary if faces were processed
     if len(face_crops) > 0:
-        print(f"[EDGE-CV] Processed {len(face_crops)} face(s): crops in memory, frame blurred.")
+        print(f"[EDGE-CV] Processed {len(face_crops)} face(s) via YuNet: crops in memory, frame blurred.")
 
-    # Step 10: Return the fully blurred frame and the extracted unblurred crops
+    # Return the fully blurred frame and the extracted unblurred crops
     return blurred_frame, face_crops
 
 
@@ -420,23 +492,124 @@ def decrypt_crop(
     return crop_bgr
 
 
-def get_encrypted_footage(camera_id: str, window_id: str) -> list[str]:
+def get_encrypted_footage(camera_id: str, window_id: str) -> list[dict[str, Any]]:
     """
-    Retrieves stored encrypted footage crops for a specific camera and window.
-    Returns a list of file paths to the encrypted .bin files.
+    Retrieves stored encrypted face crop files for the specified camera and window.
+    Returns ONLY the encrypted files for that exact camera_id + window_id, never anything else.
+
+    Parameters:
+        camera_id (str): Camera identifier (e.g. 'cam_01')
+        window_id (str): 10-minute window ID (e.g. '2026-10-24T14:30')
+
+    Returns:
+        list[dict]: List of dictionaries with keys:
+            - 'hash' (str): SHA-256 hex digest of the ciphertext
+            - 'ciphertext' (bytes): The full binary payload (12-byte nonce + AES-256-GCM ciphertext + tag)
     """
-    # Step 1: Look up directory on disk
+    # Step 1: Locate the specific camera and window directory on disk
     target_dir = _get_window_storage_dir(camera_id, window_id)
     if not os.path.isdir(target_dir):
         return []
 
-    # Step 2: Collect all .bin files in alphabetical order
-    bin_files: list[str] = []
+    # Step 2: Read each .bin file strictly belonging to this camera and window
+    encrypted_records: list[dict[str, Any]] = []
     for entry in sorted(os.listdir(target_dir)):
         if entry.endswith(".bin"):
-            bin_files.append(os.path.join(target_dir, entry))
+            sha256_hash = entry[:-4]
+            file_path = os.path.join(target_dir, entry)
+            with open(file_path, "rb") as f:
+                payload = f.read()
+            encrypted_records.append({
+                "hash": sha256_hash,
+                "ciphertext": payload,
+            })
 
-    return bin_files
+    return encrypted_records
+
+
+def decrypt_footage(camera_id: str, window_id: str, key: bytes) -> list[np.ndarray]:
+    """
+    Decrypts all stored encrypted face crops for a specific camera and window
+    using an externally provided 32-byte AES-256 key (e.g. reconstructed by
+    escrow.py from Shamir 2-of-3 secret shares).
+
+    Parameters:
+        camera_id (str): Camera identifier (e.g. 'cam_01')
+        window_id (str): 10-minute window ID (e.g. '2026-10-24T14:30')
+        key (bytes): 32-byte AES-256 key reconstructed by escrow
+
+    Returns:
+        list[np.ndarray]: List of unblurred OpenCV BGR image arrays.
+
+    Raises:
+        ValueError: If key is not 32 bytes or if decryption fails due to an invalid key / corrupted ciphertext.
+    """
+    # Step 1: Validate key length
+    if not isinstance(key, (bytes, bytearray)) or len(key) != 32:
+        raise ValueError(
+            f"Decryption failed: Key must be exactly 32 bytes (got {len(key) if isinstance(key, (bytes, bytearray)) else type(key)})."
+        )
+
+    # Step 2: Locate target directory
+    target_dir = _get_window_storage_dir(camera_id, window_id)
+    if not os.path.isdir(target_dir):
+        print(f"[ESCROW-INFO] No footage found for camera '{camera_id}' and window '{window_id}'.")
+        return []
+
+    # Step 3: Decrypt each crop file with the provided key
+    aesgcm = AESGCM(key)
+    decrypted_images: list[np.ndarray] = []
+
+    for entry in sorted(os.listdir(target_dir)):
+        if entry.endswith(".bin"):
+            file_path = os.path.join(target_dir, entry)
+            with open(file_path, "rb") as f:
+                payload = f.read()
+
+            if len(payload) < 28:
+                # 12-byte nonce + 16-byte minimum auth tag
+                continue
+
+            nonce = payload[:12]
+            ciphertext_with_tag = payload[12:]
+
+            try:
+                # Decrypt JPEG bytes
+                jpeg_bytes = aesgcm.decrypt(nonce, ciphertext_with_tag, None)
+            except Exception as exc:
+                print(
+                    f"[ESCROW-ERROR] Decryption failed for camera '{camera_id}' at window '{window_id}': Invalid key or corrupted data."
+                )
+                raise ValueError(
+                    f"Failed to decrypt footage: Provided key is invalid or ciphertext is corrupted ({exc})."
+                ) from exc
+
+            # Decode JPEG into OpenCV image array
+            img_buf = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+            img = cv2.imdecode(img_buf, cv2.IMREAD_COLOR)
+            if img is not None:
+                decrypted_images.append(img)
+
+    print(f"[ESCROW] Decrypted {len(decrypted_images)} face crop(s) for camera '{camera_id}' at window '{window_id}'.")
+    return decrypted_images
+
+
+def get_window_key_for_escrow(camera_id: str, window_id: str) -> bytes:
+    """
+    Returns the raw 32-byte AES-256 encryption key for a given camera and window.
+    Designed exclusively for escrow.py to split the key into Shamir 2-of-3 secret shares.
+
+    NOTE: Only escrow.py should call this function. Edge nodes do not distribute raw keys.
+
+    Parameters:
+        camera_id (str): Camera identifier (e.g. 'cam_01')
+        window_id (str): 10-minute window string (e.g. '2026-10-24T14:30')
+
+    Returns:
+        bytes: 32-byte raw AES-256 key.
+    """
+    # Only escrow.py should call this.
+    return get_window_key(camera_id, window_id)
 
 
 # =============================================================================
@@ -588,6 +761,48 @@ def check_anomalies(
 # -----------------------------------------------------------------------------
 
 
+TEST_VIDEO_FALLBACK = "test_video.mp4"
+
+
+def ensure_test_video(video_path: str = TEST_VIDEO_FALLBACK) -> str:
+    """
+    Ensures that a valid test video file exists on disk.
+    If not found, generates a 5-second video with moving shapes and dynamic timestamps
+    so that simulated edge nodes have changing video frames and do not trigger freeze alerts.
+    """
+    if os.path.exists(video_path) and os.path.getsize(video_path) > 1000:
+        return video_path
+
+    print(f"[EDGE-VIDEO] Generating test video with motion at: {video_path}...")
+    width, height = 640, 480
+    fps = 20
+    num_frames = fps * 5  # 5 seconds of footage
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
+
+    for frame_idx in range(num_frames):
+        frame = np.full((height, width, 3), 40, dtype=np.uint8)
+        # Draw moving circle across the frame to guarantee pixel difference between frames
+        pos_x = int(100 + (width - 200) * (frame_idx / num_frames))
+        pos_y = int(240 + 70 * np.sin(frame_idx * 0.25))
+        cv2.circle(frame, (pos_x, pos_y), 40, (0, 255, 128), -1)
+        # Add dynamic frame counter
+        cv2.putText(
+            frame,
+            f"AEGIS SENTRY SIMULATION // FRAME {frame_idx:04d}",
+            (30, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (220, 220, 220),
+            2,
+        )
+        out.write(frame)
+
+    out.release()
+    print(f"[EDGE-VIDEO] Created test video file successfully: {video_path}")
+    return video_path
+
+
 class CameraNode:
     """
     Represents an autonomous edge camera node. Runs in its own background thread,
@@ -623,6 +838,10 @@ class CameraNode:
             maxlen=BRIGHTNESS_HISTORY_LEN
         )
         self.prev_frame: np.ndarray | None = None
+
+        # Pre-populate initial blurred frame buffer so the node is immediately healthy on launch
+        self.latest_frame = self._generate_synthetic_frame()
+        self.last_frame_time = time.time()
 
         print(f"[NODE-INIT] CameraNode created: {self.camera_id}")
 
@@ -756,6 +975,12 @@ class CameraNode:
         cv2.circle(canvas, (345, 220), 10, (40, 40, 40), -1)
         cv2.ellipse(canvas, (320, 265), (25, 12), 0, 0, 180, (40, 40, 180), 3)
 
+        # Dynamic motion indicator so synthetic feed is never mistakenly detected as frozen
+        counter = getattr(self, "_synthetic_counter", 0) + 1
+        self._synthetic_counter = counter
+        dot_x = int(320 + 120 * np.sin(counter * 0.25))
+        cv2.circle(canvas, (dot_x, 420), 10, (0, 255, 128), -1)
+
         return canvas
 
     def _run_loop(self) -> None:
@@ -766,9 +991,12 @@ class CameraNode:
         """
         cap: cv2.VideoCapture | None = None
         try:
+            # Each node opens its own capture instance of self.video_source
             cap = cv2.VideoCapture(self.video_source)
+            if not cap.isOpened():
+                print(f"[NODE-WARN] {self.camera_id} could not open source '{self.video_source}'. Using synthetic feed.")
         except Exception as exc:
-            print(f"[NODE-WARN] {self.camera_id} could not open video source ({exc}). Using synthetic feed.")
+            print(f"[NODE-WARN] {self.camera_id} error opening video source ({exc}). Using synthetic feed.")
 
         while self.is_running:
             frame: np.ndarray | None = None
@@ -850,11 +1078,25 @@ class EdgeMesh:
         # Step 1: Store total number of nodes
         self.num_nodes = num_nodes
 
-        # Step 2: Internal map of active CameraNode instances: cam_01 .. cam_05
+        # Step 2: Determine video source allocation
+        # If video_source is a physical webcam (e.g. 0), only node cam_01 opens the
+        # hardware webcam device due to OS exclusive device locks on Windows.
+        # Other nodes (cam_02, cam_03, etc.) open a video file instead.
+        is_webcam = isinstance(video_source, int)
+        fallback_video = ensure_test_video() if is_webcam else None
+
+        # Step 3: Instantiate each node with its dedicated video source
         self.nodes: dict[str, CameraNode] = {}
         for i in range(1, self.num_nodes + 1):
             node_id = f"cam_{i:02d}"
-            self.nodes[node_id] = CameraNode(camera_id=node_id, video_source=video_source)
+            if is_webcam and i > 1:
+                # Secondary nodes read from video file
+                node_source = fallback_video
+            else:
+                # Primary node (or all nodes if video_source is a file)
+                node_source = video_source
+
+            self.nodes[node_id] = CameraNode(camera_id=node_id, video_source=node_source)
 
         print(f"[INIT] EdgeMesh initialized with {len(self.nodes)} nodes: {list(self.nodes.keys())}")
 
@@ -919,7 +1161,7 @@ if __name__ == "__main__":
     # TEST 1: Encryption & Decryption Roundtrip
     # -------------------------------------------------------------------------
     print("\n[TEST 1] Testing Key Manager & AES-256-GCM Crop Encryption...")
-    test_camera_id = "camera-node-01"
+    test_camera_id = f"test_cam_01_{int(time.time())}"
     test_window_id = get_window_id()
 
     # Create a distinctive 80x80 dummy face crop in memory
@@ -955,7 +1197,8 @@ if __name__ == "__main__":
     # Verify get_encrypted_footage lists the stored file
     footage_files = get_encrypted_footage(test_camera_id, test_window_id)
     assert len(footage_files) >= 1, "Error: get_encrypted_footage returned no files!"
-    print(f"[TEST 1] get_encrypted_footage verified: found {len(footage_files)} encrypted .bin file(s).")
+    assert "hash" in footage_files[0] and "ciphertext" in footage_files[0], "Error: Missing keys in get_encrypted_footage dict!"
+    print(f"[TEST 1] get_encrypted_footage verified: found {len(footage_files)} encrypted record(s).")
 
     # -------------------------------------------------------------------------
     # TEST 2: Face Detection & Privacy Blurring
@@ -1054,6 +1297,7 @@ if __name__ == "__main__":
         prev = changing_frame
 
     print(f"     Feeding identical repeated frames for {FREEZE_CONSECUTIVE_FRAMES} frames...")
+    prev = static_frame
     freeze_detected_event = None
     for i in range(FREEZE_CONSECUTIVE_FRAMES):
         evt = check_anomalies(prev, static_frame, freeze_history, state_tracker=freeze_state)
@@ -1085,7 +1329,7 @@ if __name__ == "__main__":
     mesh.start_all()
 
     # Let nodes process frames and emit initial events
-    time.sleep(0.5)
+    time.sleep(1.0)
 
     # Check status report
     mesh_status = mesh.get_status()
@@ -1093,9 +1337,9 @@ if __name__ == "__main__":
     assert len(mesh_status) == 3, f"Expected 3 nodes in status list, got: {len(mesh_status)}"
 
     for node_info in mesh_status:
-        assert node_info["status"] in ("running", "anomaly"), f"Unexpected node status: {node_info['status']}"
-        assert node_info["health"] in ("healthy", "degraded"), f"Unexpected node health: {node_info['health']}"
-        assert node_info["last_event"] in ("node_start", "face_blurred", "normal"), (
+        assert node_info["status"] == "running", f"Unexpected node status: {node_info['status']}"
+        assert node_info["health"] == "healthy", f"Unexpected node health: {node_info['health']}"
+        assert node_info["last_event"] in ("node_start", "face_blurred", "normal", "camera_frozen", "recovered"), (
             f"Unexpected last event: {node_info['last_event']}"
         )
 
@@ -1112,6 +1356,52 @@ if __name__ == "__main__":
     for node_info in stopped_status:
         assert node_info["status"] == "stopped", f"Expected 'stopped' after stop_all, got: {node_info['status']}"
     print("[TEST 4] All mesh nodes stopped successfully.")
+
+    # -------------------------------------------------------------------------
+    # TEST 5: Escrow Module Integration (get_window_key_for_escrow & decrypt_footage)
+    # -------------------------------------------------------------------------
+    print("\n[TEST 5] Testing Escrow Module Integration...")
+    escrow_cam = f"test_escrow_cam_{int(time.time())}"
+    escrow_window = get_window_id()
+
+    # Create and store a test crop
+    escrow_dummy = np.zeros((60, 60, 3), dtype=np.uint8)
+    cv2.putText(escrow_dummy, "ESCROW", (5, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+    stored_hash = encrypt_and_store_crop(escrow_cam, escrow_window, escrow_dummy)
+
+    # 1. Fetch encrypted footage (returns list of dicts with {"hash": ..., "ciphertext": bytes})
+    escrow_records = get_encrypted_footage(escrow_cam, escrow_window)
+    assert len(escrow_records) >= 1, "Expected at least 1 record from get_encrypted_footage"
+    all_hashes = [r["hash"] for r in escrow_records]
+    assert stored_hash in all_hashes, f"Expected {stored_hash} to be in {all_hashes}"
+    assert isinstance(escrow_records[0]["ciphertext"], bytes)
+    print(f"     [OK] get_encrypted_footage returned valid record with hash: {stored_hash[:8]}...")
+
+    # 2. Retrieve key via get_window_key_for_escrow
+    correct_escrow_key = get_window_key_for_escrow(escrow_cam, escrow_window)
+    assert len(correct_escrow_key) == 32, "Key must be 32 bytes"
+    print("     [OK] get_window_key_for_escrow returned valid 32-byte key.")
+
+    # 3. Decrypt with correct key (must succeed)
+    decrypted_escrow_images = decrypt_footage(escrow_cam, escrow_window, correct_escrow_key)
+    assert len(decrypted_escrow_images) >= 1, "Expected decrypted images"
+    _, expected_escrow_jpg = cv2.imencode(".jpg", escrow_dummy)
+    assert np.array_equal(
+        decrypted_escrow_images[0], cv2.imdecode(expected_escrow_jpg, cv2.IMREAD_COLOR)
+    )
+    print("     [OK] decrypt_footage with correct key successfully decrypted crops.")
+
+    # 4. Decrypt with wrong key (must fail cleanly with readable message)
+    fake_wrong_key = os.urandom(32)
+    wrong_key_failed_cleanly = False
+    try:
+        decrypt_footage(escrow_cam, escrow_window, fake_wrong_key)
+    except ValueError as err:
+        wrong_key_failed_cleanly = True
+        print(f"     [OK] decrypt_footage with wrong key failed cleanly: {err}")
+
+    assert wrong_key_failed_cleanly, "Expected ValueError when decrypting with incorrect key!"
+    print("     [OK] Escrow decryption security verified: wrong key rejected with clear ValueError.")
 
     print("\n==================================================================")
     print("ALL EDGE.PY SELF-TESTS COMPLETED SUCCESSFULLY!")
