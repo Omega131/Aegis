@@ -1,40 +1,46 @@
-import { useState } from 'react'
-import { Layout, type NavTab } from './shell'
-import { LivingCityPage } from './pages/city'
-import { ConsolePage } from './pages/console'
-import { CamerasPage } from './pages/cameras'
-import { DecoyPage } from './pages/decoy'
-import { CampaignsPage } from './pages/campaigns'
+import { AppProvider, useApp } from './context/AppContext';
+import { AppLayout } from './components/AppShell/AppLayout';
+import { LivingCityPage } from './pages/city';
+import { CamerasPage } from './pages/cameras';
+import { DecoyPage } from './pages/decoy';
+import { EvidencePage } from './pages/evidence';
+import { EscrowPage } from './pages/escrow';
+import { AuditPage } from './pages/audit';
+import { SettingsPage } from './pages/settings';
 
-export function App() {
-  const [activeTab, setActiveTab] = useState<NavTab>('city')
+function AppContent() {
+  const { activeTab } = useApp();
 
-  if (activeTab === 'city') {
-    return <LivingCityPage onNavigateTab={setActiveTab} />
-  }
-
-  if (activeTab === 'console') {
-    return <ConsolePage onNavigateTab={setActiveTab} />
-  }
-
-  const renderActivePage = () => {
+  const renderActiveRoute = () => {
     switch (activeTab) {
+      case 'city':
+        return <LivingCityPage />;
       case 'cameras':
-        return <CamerasPage />
+        return <CamerasPage />;
       case 'decoy':
-        return <DecoyPage />
-      case 'campaigns':
-        return <CampaignsPage />
+        return <DecoyPage />;
+      case 'evidence':
+        return <EvidencePage />;
+      case 'escrow':
+        return <EscrowPage />;
+      case 'audit':
+        return <AuditPage />;
+      case 'settings':
+        return <SettingsPage />;
       default:
-        return <LivingCityPage onNavigateTab={setActiveTab} />
+        return <LivingCityPage />;
     }
-  }
+  };
 
-  return (
-    <Layout activeTab={activeTab} onSelectTab={setActiveTab}>
-      {renderActivePage()}
-    </Layout>
-  )
+  return <AppLayout>{renderActiveRoute()}</AppLayout>;
 }
 
-export default App
+export function App() {
+  return (
+    <AppProvider>
+      <AppContent />
+    </AppProvider>
+  );
+}
+
+export default App;

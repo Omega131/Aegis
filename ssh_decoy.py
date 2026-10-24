@@ -343,10 +343,15 @@ class DecoySSHServerController:
     async def stop(self) -> None:
         """Stops the SSH honeypot server."""
         if self.server:
-            self.server.close()
-            await self.server.wait_closed()
-            self.server = None
+            try:
+                self.server.close()
+                await self.server.wait_closed()
+            except Exception as e:
+                print(f"[SSH Decoy] Stop notice: {e}")
+            finally:
+                self.server = None
             print("[SSH Decoy] Server stopped.")
+
 
 
 # Module singleton

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import './decoy.css'
 
 // =============================================================================
@@ -64,8 +64,9 @@ export interface OperatorTelemetryPayload {
 
 // Configurable API base (Vite environment variable or default local backend)
 const API_BASE =
+  (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_API_URL as string)) ||
   (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_API_BASE_URL as string)) ||
-  'http://127.0.0.1:8000'
+  'http://localhost:8000'
 
 // =============================================================================
 // Explicit Development Seed Fixtures (Restricted to Offline Development/Demo)
@@ -199,6 +200,11 @@ export const DecoyPage: React.FC = () => {
   // Simulation & Keystroke Input State
   const [customCmd, setCustomCmd] = useState<string>('')
   const [simNotice, setSimNotice] = useState<string>('')
+  const [isSimulatingBenign, setIsSimulatingBenign] = useState<boolean>(false)
+  const [isSimulatingScanner, setIsSimulatingScanner] = useState<boolean>(false)
+  const [isUploadingEvidence, setIsUploadingEvidence] = useState<boolean>(false)
+  const [drillNotice, setDrillNotice] = useState<string>('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ---------------------------------------------------------------------------
   // Backend Polling & Fetch Logic
@@ -373,52 +379,231 @@ export const DecoyPage: React.FC = () => {
     setTimeout(() => setSimNotice(''), 4000)
   }
 
-  const handleSimulateEvidenceUpload = async () => {
-    if (!selectedSession) return
-    const samplePayload = `#!/bin/sh\n# MIRAI DROPPER STAGE2\nC2=http://198.51.100.99:9000/stage2\nIP=203.0.113.44:443\n`
+  // ---------------------------------------------------------------------------
+  // Hackathon Simulation Drills (Member B Sandbox) Handlers
+  // ---------------------------------------------------------------------------
 
-    if (connectionStatus === 'connected') {
-      try {
-        const res = await fetch(`${API_BASE}/api/decoy/upload?session_id=${selectedSession.session_id}&filename=dropper.sh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: samplePayload,
-        })
-        if (res.ok) {
-          await fetchTelemetry()
-          setSimNotice('Evidence file uploaded to quarantine & statically analyzed!')
-          setTimeout(() => setSimNotice(''), 4000)
-          return
-        }
-      } catch {
-        // fall back to local update
+  const handleSimulateBenignAdmin = async () => {
+    setIsSimulatingBenign(true)
+    const adminIp = '10.0.0.50'
+    try {
+      const res = await fetch(`${API_BASE}/api/gateway/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_ip: adminIp,
+          service: 'ssh',
+          username: 'field_technician',
+          password: 'ValidTechnicianKey2026!',
+          is_login_failure: false,
+        }),
+      })
+
+      if (res.ok) {
+        const decision: RouteDecisionItem = await res.json()
+        await fetchTelemetry()
+        setActiveTab('routes')
+        const msg = `✅ Benign Admin Drill: IP ${decision.source_ip} evaluated by Gateway -> Destination: "${decision.destination.toUpperCase()}" (Score: ${decision.score.toFixed(1)}). Switched to Route Decisions table.`
+        setDrillNotice(msg)
+        setSimNotice(msg)
+        setTimeout(() => setDrillNotice(''), 7000)
+        return
       }
+    } catch (err) {
+      console.warn('Backend route simulation error:', err)
+    } finally {
+      setIsSimulatingBenign(false)
     }
 
-    // Local simulation update
+    // Fallback if offline
+    const fallbackRoute: RouteDecisionItem = {
+      source_ip: adminIp,
+      destination: 'real',
+      score: 0.0,
+      reason: 'Trusted operator IP in gateway allowlist (routes to real device; requires valid auth)',
+    }
+    setRoutes((prev) => [fallbackRoute, ...prev.filter((r) => r.source_ip !== adminIp)])
+    setActiveTab('routes')
+    const fallbackMsg = `✅ Benign Admin Drill (Offline): IP ${adminIp} routed to Real Camera (Score: 0.0).`
+    setDrillNotice(fallbackMsg)
+    setSimNotice(fallbackMsg)
+    setTimeout(() => setDrillNotice(''), 7000)
+  }
+
+  const handleSimulatePortScanner = async () => {
+    setIsSimulatingScanner(true)
+    const scannerIp = `198.51.100.${Math.floor(Math.random() * 80 + 10)}`
+    try {
+      // 1. First probe on web port (touch service 1)
+      await fetch(`${API_BASE}/api/gateway/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_ip: scannerIp,
+          service: 'web',
+        }),
+      })
+
+      // 2. Rapid second probe on SSH port with failed login (touch service 2 + failed login) -> score 30.0 -> rate_limit!
+      const res = await fetch(`${API_BASE}/api/gateway/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_ip: scannerIp,
+          service: 'ssh',
+          is_login_failure: true,
+        }),
+      })
+
+      if (res.ok) {
+        const decision: RouteDecisionItem = await res.json()
+        await fetchTelemetry()
+        setActiveTab('routes')
+        const msg = `⚠️ Port Scanner Drill: Recon probe from ${decision.source_ip} detected -> Escalated to "${decision.destination.toUpperCase()}" Throttling (Score: ${decision.score.toFixed(1)}). Switched to Route Decisions table.`
+        setDrillNotice(msg)
+        setSimNotice(msg)
+        setTimeout(() => setDrillNotice(''), 7000)
+        return
+      }
+    } catch (err) {
+      console.warn('Backend port scanner simulation error:', err)
+    } finally {
+      setIsSimulatingScanner(false)
+    }
+
+    // Fallback if offline
+    const fallbackRoute: RouteDecisionItem = {
+      source_ip: scannerIp,
+      destination: 'rate_limit',
+      score: 30.0,
+      reason: 'Uncertain reconnaissance: Distinct services touched: ssh, web, Failed login attempt #1',
+    }
+    setRoutes((prev) => [fallbackRoute, ...prev])
+    setActiveTab('routes')
+    const fallbackMsg = `⚠️ Port Scanner Drill (Offline): IP ${scannerIp} throttled to Rate-Limit (Score: 30.0).`
+    setDrillNotice(fallbackMsg)
+    setSimNotice(fallbackMsg)
+    setTimeout(() => setDrillNotice(''), 7000)
+  }
+
+  const handleSimulateEvidenceUpload = async () => {
+    setIsUploadingEvidence(true)
+    const targetSessionId = selectedSession?.session_id || (sessions.length > 0 ? sessions[0].session_id : 'sess-ssh-seed-01')
+    const samplePayload = `#!/bin/sh\n# MIRAI DROPPER STAGE2\nC2=http://198.51.100.99:9000/stage2\nIP=203.0.113.44:443\nGATEWAY_CHECK=http://mirai-telemetry.example.org:8080/checkin\nexit 0\n`
+
+    try {
+      const res = await fetch(`${API_BASE}/api/decoy/upload?session_id=${encodeURIComponent(targetSessionId)}&filename=mirai_dropper.sh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+        },
+        body: samplePayload,
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        await fetchTelemetry()
+        setSelectedSessionId(targetSessionId)
+        setActiveTab('sessions')
+        const msg = `📁 Demo File Quarantined: "${data.original_filename}" stored as ${data.quarantine_filename} (SHA-256: ${data.sha256.slice(0, 16)}..., IOC URLs: ${data.candidate_urls.length}) in session ${targetSessionId}.`
+        setDrillNotice(msg)
+        setSimNotice(msg)
+        setTimeout(() => setDrillNotice(''), 7000)
+
+        // Smooth scroll to the evidence card in the right column
+        setTimeout(() => {
+          const el = document.getElementById('session-evidence-panel')
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+          }
+        }, 100)
+        return
+      }
+    } catch (err) {
+      console.warn('Backend evidence upload error:', err)
+    } finally {
+      setIsUploadingEvidence(false)
+    }
+
+    // Fallback if offline
     const newSubmission: FileSubmissionInfo = {
       submission_id: `sub-${Math.floor(Math.random() * 900000 + 100000)}`,
       received_at: Date.now() / 1000,
-      original_filename: 'dropper.sh',
+      original_filename: 'mirai_dropper.sh',
       quarantine_filename: `artifact_demo_${Math.floor(Math.random() * 9000 + 1000)}.bin`,
       size_bytes: samplePayload.length,
       sha256: 'c920fa9ab073c684dd50e39128ec1e48f719505dde3b2f0c854adada291e40c4',
       md5: 'd41d8cd98f00b204e9800998ecf8427e',
-      candidate_urls: ['http://198.51.100.99:9000/stage2'],
+      candidate_urls: ['http://198.51.100.99:9000/stage2', 'http://mirai-telemetry.example.org:8080/checkin'],
       candidate_ips: ['203.0.113.44:443'],
     }
 
-    const updatedSession: DecoySessionItem = {
-      ...selectedSession,
-      file_submissions: [...(selectedSession.file_submissions || []), newSubmission],
-      malware_hash: newSubmission.sha256,
-      c2_address: newSubmission.candidate_urls[0],
-      last_active: Date.now() / 1000,
+    if (selectedSession) {
+      const updatedSession: DecoySessionItem = {
+        ...selectedSession,
+        file_submissions: [...(selectedSession.file_submissions || []), newSubmission],
+        malware_hash: newSubmission.sha256,
+        c2_address: newSubmission.candidate_urls[0],
+        last_active: Date.now() / 1000,
+      }
+      setSessions((prev) => prev.map((s) => (s.session_id === selectedSession.session_id ? updatedSession : s)))
     }
+    setActiveTab('sessions')
+    const fallbackMsg = `📁 File Quarantined (Offline): "mirai_dropper.sh" added to session evidence.`
+    setDrillNotice(fallbackMsg)
+    setSimNotice(fallbackMsg)
+    setTimeout(() => setDrillNotice(''), 7000)
+  }
 
-    setSessions((prev) => prev.map((s) => (s.session_id === selectedSession.session_id ? updatedSession : s)))
-    setSimNotice('Simulated file artifact submitted to quarantine.')
-    setTimeout(() => setSimNotice(''), 4000)
+  const handleCustomFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsUploadingEvidence(true)
+    const targetSessionId = selectedSession?.session_id || (sessions.length > 0 ? sessions[0].session_id : 'sess-ssh-seed-01')
+
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      const res = await fetch(
+        `${API_BASE}/api/decoy/upload?session_id=${encodeURIComponent(targetSessionId)}&filename=${encodeURIComponent(file.name)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: arrayBuffer,
+        }
+      )
+
+      if (res.ok) {
+        const data = await res.json()
+        await fetchTelemetry()
+        setSelectedSessionId(targetSessionId)
+        setActiveTab('sessions')
+        const msg = `📁 Quarantined "${file.name}" (${file.size} B) -> Saved as ${data.quarantine_filename} (SHA-256: ${data.sha256.slice(0, 16)}...)`
+        setDrillNotice(msg)
+        setSimNotice(msg)
+        setTimeout(() => setDrillNotice(''), 7000)
+
+        setTimeout(() => {
+          const el = document.getElementById('session-evidence-panel')
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+          }
+        }, 100)
+        return
+      } else {
+        const errJson = await res.json().catch(() => ({}))
+        const errMsg = `Upload error: ${errJson.detail || res.statusText}`
+        setDrillNotice(errMsg)
+        setTimeout(() => setDrillNotice(''), 7000)
+      }
+    } catch (err: any) {
+      const errMsg = `Upload failed: ${err.message}`
+      setDrillNotice(errMsg)
+      setTimeout(() => setDrillNotice(''), 7000)
+    } finally {
+      setIsUploadingEvidence(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -807,48 +992,81 @@ export const DecoyPage: React.FC = () => {
 
             {/* Drill Simulation Controls */}
             <div className="sim-controls">
-              <span
-                style={{
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  color: 'var(--text-muted)',
-                  textTransform: 'uppercase',
-                }}
-              >
-                Hackathon Simulation Drills (Member B Sandbox)
-              </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: 'var(--text-muted)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                  }}
+                >
+                  Hackathon Simulation Drills (Member B Sandbox)
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                  Live API triggers for perimeter routing & evidence
+                </span>
+              </div>
+
+              {drillNotice && (
+                <div
+                  className="drill-feedback-banner"
+                  style={{
+                    background: 'rgba(56, 189, 248, 0.12)',
+                    border: '1px solid var(--accent-cyan)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '0.55rem 0.85rem',
+                    fontSize: '0.775rem',
+                    color: '#e0f2fe',
+                    lineHeight: 1.4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <span>{drillNotice}</span>
+                </div>
+              )}
+
               <div className="sim-btn-row">
                 <button
                   className="btn-sim"
-                  onClick={() => {
-                    const newRoute: RouteDecisionItem = {
-                      source_ip: '127.0.0.1',
-                      destination: 'real',
-                      score: 0.0,
-                      reason: 'Trusted operator IP in gateway allowlist',
-                    }
-                    setRoutes((prev) => [newRoute, ...prev.filter((r) => r.source_ip !== '127.0.0.1')])
-                  }}
+                  onClick={handleSimulateBenignAdmin}
+                  disabled={isSimulatingBenign}
+                  title="Simulate allowlisted technician login to verify it routes directly to real camera without honeytoken entrapment"
                 >
-                  + Benign Admin (Real)
+                  {isSimulatingBenign ? '⏳ Evaluating Route...' : '+ Benign Admin (Real)'}
                 </button>
                 <button
                   className="btn-sim"
-                  onClick={() => {
-                    const ip = `198.51.100.${Math.floor(Math.random() * 80 + 10)}`
-                    const newRoute: RouteDecisionItem = {
-                      source_ip: ip,
-                      destination: 'rate_limit',
-                      score: 35.0,
-                      reason: 'Fail-safe rate limit: Rapid multi-port probe detected',
-                    }
-                    setRoutes((prev) => [newRoute, ...prev])
-                  }}
+                  onClick={handleSimulatePortScanner}
+                  disabled={isSimulatingScanner}
+                  title="Simulate multi-service scanner probing web & ssh to trigger fail-safe rate limiting (score 20-59)"
                 >
-                  + Port Scanner (Rate-Limit)
+                  {isSimulatingScanner ? '⏳ Simulating Scan...' : '+ Port Scanner (Rate-Limit)'}
                 </button>
-                <button className="btn-sim btn-sim-danger" onClick={handleSimulateEvidenceUpload}>
-                  📁 Upload Demo File Evidence
+                <button
+                  className="btn-sim btn-sim-danger"
+                  onClick={handleSimulateEvidenceUpload}
+                  disabled={isUploadingEvidence}
+                  title="Upload sample Mirai dropper script to honeypot quarantine to compute SHA-256 and extract C2 indicators"
+                >
+                  {isUploadingEvidence ? '⏳ Quarantining...' : '📁 Upload Demo File Evidence'}
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  onChange={handleCustomFileUpload}
+                />
+                <button
+                  className="btn-sim"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingEvidence}
+                  title="Upload any custom file from your device into the safe honeypot quarantine"
+                >
+                  ⬆️ Upload Custom File...
                 </button>
               </div>
             </div>
@@ -987,7 +1205,7 @@ export const DecoyPage: React.FC = () => {
             </form>
 
             {/* File Evidence & Candidate Indicators Section */}
-            <div className="evidence-card">
+            <div className="evidence-card" id="session-evidence-panel">
               <div className="evidence-header">
                 <span>📁 Submitted File Evidence & Indicators</span>
                 {selectedSession?.file_submissions && selectedSession.file_submissions.length > 0 && (

@@ -1,50 +1,52 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import './city.css';
 import { api, type CameraNode, type DecoyTelemetry } from '../../api/client';
+import { useApp } from '../../context/AppContext';
+import { Badge } from '../../components/ui/Badge';
 
-interface LivingCityPageProps {
-  onNavigateTab: (tab: 'city' | 'console' | 'cameras' | 'decoy' | 'campaigns') => void;
+export interface CityDevice {
+  key: string;
+  id: string;
+  name: string;
+  district: string;
+  x: number;
+  z: number;
+  y: number;
+  icon: string;
+  type: 'camera' | 'signal' | 'power' | 'sensor' | 'gateway';
+  color: string;
 }
 
-const CITY_DEVICES = [
-  { key: 'camera', name: 'Edge camera', id: 'CAM-01 / EDGE SENTRY', title: 'Eyes on the city.', x: -160, z: 125, y: 63, icon: '◉' },
-  { key: 'signal', name: 'Traffic signal', id: 'SIG-02 / MOBILITY', title: 'Keep the city moving.', x: 15, z: 125, y: 39, icon: '⋮' },
-  { key: 'power', name: 'Energy grid', id: 'PWR-03 / INFRASTRUCTURE', title: 'Power without pause.', x: 185, z: -142, y: 62, icon: 'ϟ' },
-  { key: 'sensor', name: 'Environment sensor', id: 'ENV-04 / TELEMETRY', title: 'A city that senses.', x: -180, z: -125, y: 61, icon: '⌁' },
-  { key: 'gateway', name: 'Aegis gateway', id: 'GW-05 / PHANTOM TWIN', title: 'A convincing wrong turn.', x: 55, z: -68, y: 145, icon: '◇' },
+const CITY_DEVICES: CityDevice[] = [
+  { key: 'camera', id: 'CAM-01', name: 'Edge Sentry Camera', district: 'Civic Core District', x: -160, z: 125, y: 64, icon: '◉', type: 'camera', color: '#37DDE0' },
+  { key: 'signal', id: 'SIG-02', name: 'Mobility Traffic Controller', district: 'Central Transit Corridor', x: 15, z: 125, y: 40, icon: '⋮', type: 'signal', color: '#F5BC62' },
+  { key: 'power', id: 'PWR-03', name: 'Smart Substation Node', district: 'Industrial Power Sector', x: 185, z: -142, y: 62, icon: 'ϟ', type: 'power', color: '#EC72C7' },
+  { key: 'sensor', id: 'ENV-04', name: 'Environmental Telemetry', district: 'Botanical Environmental Zone', x: -180, z: -125, y: 61, icon: '⌁', type: 'sensor', color: '#34D399' },
+  { key: 'gateway', id: 'GW-05', name: 'Phantom Twin Honeypot Gateway', district: 'Virtual Deception Perimeter', x: 55, z: -68, y: 145, icon: '◇', type: 'gateway', color: '#A78BFA' },
 ];
 
-export const LivingCityPage: React.FC<LivingCityPageProps> = ({ onNavigateTab }) => {
+export const LivingCityPage: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const {
+    setSelectedDevice,
+    setInspectorOpen,
+    addToast,
+    motionReduced,
+  } = useApp();
 
-  // UI state
-  const [night, setNight] = useState<boolean>(false);
+  // City controls state
+  const [night, setNight] = useState<boolean>(true); // default to glorious midnight palette
   const [paused, setPaused] = useState<boolean>(false);
-  const [exploring, setExploring] = useState<boolean>(false);
-  const [stage, setStage] = useState<number>(0);
-  const [selectedDeviceKey, setSelectedDeviceKey] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [networkStatusText, setNetworkStatusText] = useState<string>('05 NODES PROTECTED');
-  const [trafficText, setTrafficText] = useState<string>('CITY TRAFFIC ACTIVE');
-  const [autoOrbit, setAutoOrbit] = useState<boolean>(true);
+  const [phantomLayer, setPhantomLayer] = useState<boolean>(false); // Dual-layer Phantom Twin holographic view
+  const [trafficSignalColor, setTrafficSignalColor] = useState<'green' | 'yellow' | 'red'>('green');
 
-  // Live Backend Data States
-  const [backendOnline, setBackendOnline] = useState<boolean>(false);
-  const [cameraData, setCameraData] = useState<CameraNode | null>(null);
-  const [decoyData, setDecoyData] = useState<DecoyTelemetry | null>(null);
-  const [unmaskedCrops, setUnmaskedCrops] = useState<string[]>([]);
-  const [frameTimestamp, setFrameTimestamp] = useState<number>(() => Date.now());
+  // Live telemetry state
+  const [cameraNode, setCameraNode] = useState<CameraNode | null>(null);
+  const [decoyTelemetry, setDecoyTelemetry] = useState<DecoyTelemetry | null>(null);
+  const [activeDrill, setActiveDrill] = useState<string | null>(null);
+  const [drillRunning, setDrillRunning] = useState<boolean>(false);
 
-  // Incident Panel State
-  const [incidentOpen, setIncidentOpen] = useState<boolean>(false);
-  const [incidentType, setIncidentType] = useState<string>('DEFENSE SEQUENCE');
-  const [incidentTitle, setIncidentTitle] = useState<string>('The threat takes the wrong turn.');
-  const [incidentDetail, setIncidentDetail] = useState<string>('');
-  const [incidentProgress, setIncidentProgress] = useState<number>(0);
-  const [canApprove, setCanApprove] = useState<boolean>(false);
-  const [actionLoading, setActionLoading] = useState<boolean>(false);
-
-  // References for Animation & Canvas
+  // Animation & Camera Orbit State
   const animRef = useRef<any>({
     angle: -0.62,
     targetAngle: -0.62,
@@ -56,60 +58,146 @@ export const LivingCityPage: React.FC<LivingCityPageProps> = ({ onNavigateTab })
     centerX: 0,
     centerY: 0,
     scale: 1,
-    mirror: 0,
-    mirrorTarget: 0,
-    attackStep: 0,
     t: 0,
     previous: 0,
     drag: false,
     dragX: 0,
-    scan: 0,
-    boost: 0,
+    dragY: 0,
+    autoOrbit: true,
   });
 
-  const showToast = useCallback((msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+  // Cycle traffic lights every 4 seconds
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTrafficSignalColor((prev) => (prev === 'green' ? 'yellow' : prev === 'yellow' ? 'red' : 'green'));
+    }, 4000);
+    return () => clearInterval(timer);
   }, []);
 
-  // Poll Backend Status & Subsystem Metrics
+  // Poll real backend telemetry
   useEffect(() => {
     let mounted = true;
-    const fetchTelemetry = async () => {
+    const fetchStats = async () => {
       try {
-        const health = await api.getHealth();
-        if (mounted) setBackendOnline(health.status === 'ok');
-
-        const cameras = await api.getCameras();
-        if (mounted && cameras && cameras.length > 0) {
-          setCameraData(cameras[0]);
-        }
-
-        const decoy = await api.getDecoyTelemetry();
-        if (mounted) setDecoyData(decoy);
+        const cams = await api.getCameras();
+        if (mounted && cams && cams.length > 0) setCameraNode(cams[0]);
+        const dec = await api.getDecoyTelemetry();
+        if (mounted) setDecoyTelemetry(dec);
       } catch {
-        if (mounted) setBackendOnline(false);
+        // silent catch
       }
     };
-
-    fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 3500);
+    fetchStats();
+    const interval = setInterval(fetchStats, 3000);
     return () => {
       mounted = false;
       clearInterval(interval);
     };
   }, []);
 
-  // Refresh camera live frame preview periodically
-  useEffect(() => {
-    const frameInterval = setInterval(() => {
-      setFrameTimestamp(Date.now());
-    }, 2000);
-    return () => clearInterval(frameInterval);
-  }, []);
+  // Focus camera smoothly on a specific device
+  const handleSelectDevice = useCallback((device: CityDevice) => {
+    setSelectedDevice({
+      id: device.id,
+      name: device.name,
+      type: device.type,
+      status: 'running',
+      district: device.district,
+      fps: 24.0,
+      encryptedCrops: cameraNode?.storage_encrypted_crops || 12,
+      lastEvent: 'face_blurred',
+    });
+    setInspectorOpen(true);
 
+    // Center camera on device coordinate
+    const a = animRef.current;
+    a.targetZoom = 1.35;
+    a.panX = -device.x * 0.4;
+    a.panY = device.z * 0.2;
+    a.autoOrbit = false;
 
-  // Canvas 3D City Rendering Loop
+    addToast(`Selected ${device.name}`, `Node ${device.id} active in ${device.district}`, 'production');
+  }, [setSelectedDevice, setInspectorOpen, cameraNode, addToast]);
+
+  // Reset Camera View
+  const handleResetCamera = useCallback(() => {
+    const a = animRef.current;
+    a.targetAngle = -0.62;
+    a.targetZoom = 1;
+    a.panX = 0;
+    a.panY = 0;
+    a.autoOrbit = true;
+    addToast('Camera Reset', 'Restored default city isometric orientation', 'production');
+  }, [addToast]);
+
+  // Drill A Simulation: Camera Blinding & Unauthorized Facial Unmask Denial
+  const handleRunDrillA = async () => {
+    setDrillRunning(true);
+    setActiveDrill('DRILL A: Blinding Injection & Cryptographic Access Denial');
+    addToast('Initiating Drill A', 'Injecting camera blinding anomaly on CAM-01...', 'review');
+
+    try {
+      await api.simulateCameraBlind('cam_01');
+      await new Promise((r) => setTimeout(r, 1200));
+
+      // Attempt unauthorized break-glass unmask
+      await api.attemptUnauthorized().catch(() => {
+        addToast(
+          'Access Rejection Verified (HTTP 403)',
+          'Rogue unmask request blocked. Tamper-evident ledger committed entry FALSE_POSITIVE_UNMASK_BLOCKED.',
+          'danger'
+        );
+      });
+
+      await new Promise((r) => setTimeout(r, 2000));
+      await api.simulateCameraRecover('cam_01');
+      addToast('Drill A Complete', 'CAM-01 recovered to normal privacy-blurred feed. Facial crops remain AES-256 encrypted.', 'success');
+    } catch (e: any) {
+      console.warn('Drill A warning', e);
+    } finally {
+      setDrillRunning(false);
+      setTimeout(() => setActiveDrill(null), 8000);
+    }
+  };
+
+  // Drill B Simulation: Honeypot Intrusion & Break-Glass Quorum
+  const handleRunDrillB = async () => {
+    setDrillRunning(true);
+    setActiveDrill('DRILL B: Honeypot Canary Breach & Judicial Quorum Unmasking');
+    setPhantomLayer(true); // highlight deception twin
+    addToast('Initiating Drill B', 'Simulating attacker tripping canary /etc/camera/credentials.conf...', 'deception');
+
+    try {
+      const sid = 'sess-city-drill-' + Date.now().toString().slice(-4);
+      await api.simulateDecoyCommand(sid, 'uname -a');
+      await api.simulateDecoyCommand(sid, 'cat /etc/camera/credentials.conf');
+
+      addToast(
+        'Honeytoken Canary Tripped!',
+        'Attacker isolated in Phantom Twin. Rickroll payload triggered; case CASE-2026-001 opened.',
+        'deception'
+      );
+
+      await new Promise((r) => setTimeout(r, 1500));
+      // Custodian 2 approves quorum
+      const voteRes = await api.voteEscrowCase('CASE-2026-001', 'custodian-2-cybercrime', 'approve', 'Warrant validated for canary hit.');
+
+      if (voteRes.quorum_achieved) {
+        addToast(
+          'Quorum Achieved (2 of 3 Custodians)',
+          `Scoped AES-256 key reconstructed: ${voteRes.unlocked_key?.slice(0, 16)}... Ready to unmask suspect crop.`,
+          'success'
+        );
+      }
+    } catch (e: any) {
+      console.warn('Drill B warning', e);
+    } finally {
+      setDrillRunning(false);
+      setTimeout(() => setActiveDrill(null), 8000);
+    }
+  };
+
+  // Canvas 2.5D Isometric Rendering Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -119,54 +207,64 @@ export const LivingCityPage: React.FC<LivingCityPageProps> = ({ onNavigateTab })
     let animId: number;
     const a = animRef.current;
 
-    let seed = 43;
+    // Pseudo-random deterministic generator for consistent skyline
+    let seed = 42;
     function rand() {
-      seed = (seed * 16807) % 2147483647;
-      return (seed - 1) / 2147483646;
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
     }
 
-    const blocks: [number, number][] = [
-      [-195, -172], [-124, -175], [-205, -60], [-128, -60], [-205, 39], [-124, 41],
-      [52, -181], [126, -178], [204, -182], [55, -68], [134, -65], [210, -62],
-      [58, 40], [135, 38], [209, 40], [-190, 185], [-121, 186], [55, 184], [135, 183], [210, 183],
-    ];
+    // Generate district buildings with varied silhouettes
+    const buildings: any[] = [];
+    const districtColors = {
+      civic: ['#1A253E', '#131C31', '#10172A'],
+      industrial: ['#221A33', '#1A1328', '#140E20'],
+      telemetry: ['#122731', '#0E1E26', '#0A151C'],
+    };
 
-    const buildings = blocks.map(([x, z], i) => {
-      let w = 36 + rand() * 20;
-      let d = 32 + rand() * 15;
-      let h = 35 + rand() * 70;
-      if (i === 9) { w = 49; d = 43; h = 132; }
-      if (i === 2) h = 92;
-      if (i === 6) h = 110;
-      return {
-        x, z, w, d, h,
-        kind: i === 9 ? 'core' : i % 4 === 0 ? 'glass' : i % 5 === 0 ? 'white' : 'brick',
-        roof: rand() > 0.5,
-        seed: i,
-      };
-    });
-
-    const trees: any[] = [];
-    for (let i = 0; i < 70; i++) {
-      let x, z;
-      if (i < 30) { x = -210 + rand() * 140; z = 45 + rand() * 50; }
-      else if (i < 50) { x = 75 + rand() * 140; z = 68 + rand() * 25; }
-      else { x = -240 + rand() * 490; z = 218 + rand() * 12; }
-      trees.push({ x, z, h: 10 + rand() * 12, r: 5 + rand() * 4 });
+    // Civic Core buildings (North-West)
+    for (let i = 0; i < 28; i++) {
+      const x = -240 + (i % 7) * 45 + rand() * 10;
+      const z = -200 + Math.floor(i / 7) * 48 + rand() * 10;
+      const h = 50 + rand() * 95;
+      const w = 22 + rand() * 12;
+      const d = 22 + rand() * 12;
+      buildings.push({ x, z, h, w, d, district: 'civic', colors: districtColors.civic, windows: rand() > 0.3 });
     }
 
-    const cars = Array.from({ length: 22 }, (_, i) => ({
-      p: rand(),
-      speed: 0.012 + rand() * 0.017,
+    // Industrial / Power Sector (East)
+    for (let i = 0; i < 24; i++) {
+      const x = 70 + (i % 6) * 42 + rand() * 8;
+      const z = -180 + Math.floor(i / 6) * 44 + rand() * 8;
+      const h = 40 + rand() * 70;
+      const w = 26 + rand() * 10;
+      const d = 26 + rand() * 10;
+      buildings.push({ x, z, h, w, d, district: 'industrial', colors: districtColors.industrial, windows: rand() > 0.4 });
+    }
+
+    // Surveillance & Transit Corridor (South)
+    for (let i = 0; i < 20; i++) {
+      const x = -160 + (i % 5) * 55 + rand() * 10;
+      const z = 80 + Math.floor(i / 5) * 50 + rand() * 10;
+      const h = 35 + rand() * 65;
+      const w = 24 + rand() * 12;
+      const d = 24 + rand() * 12;
+      buildings.push({ x, z, h, w, d, district: 'telemetry', colors: districtColors.telemetry, windows: rand() > 0.3 });
+    }
+
+    // Traffic vehicles
+    const cars = Array.from({ length: 30 }, (_, i) => ({
+      p: Math.random(),
+      speed: 0.008 + Math.random() * 0.012,
       axis: i % 2,
       lane: i % 4,
-      color: ['#dae8da', '#e9ad6d', '#a3c2bc', '#bfe9cf', '#e9d5c2'][i % 5],
+      color: ['#37DDE0', '#F5BC62', '#EC72C7', '#A78BFA', '#F3F6FF'][i % 5],
     }));
 
     function handleResize() {
       if (!canvas) return;
-      const W = window.innerWidth;
-      const H = window.innerHeight;
+      const W = canvas.parentElement?.clientWidth || window.innerWidth;
+      const H = canvas.parentElement?.clientHeight || window.innerHeight;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = W * dpr;
       canvas.height = H * dpr;
@@ -178,16 +276,13 @@ export const LivingCityPage: React.FC<LivingCityPageProps> = ({ onNavigateTab })
     handleResize();
     window.addEventListener('resize', handleResize);
 
-    function baseScale(W: number, H: number) {
-      return Math.min(W / 1040, H / 700) * (W < 700 ? 0.88 : 1.08);
-    }
-
+    // Isometric Projection Math
     function P(x: number, y: number, z: number) {
       const rx = x * Math.cos(a.angle) - z * Math.sin(a.angle);
       const rz = x * Math.sin(a.angle) + z * Math.cos(a.angle);
       return {
-        x: a.centerX + rx * a.scale,
-        y: a.centerY + (rz * a.tilt - y) * a.scale,
+        x: a.centerX + a.panX + rx * a.scale,
+        y: a.centerY + a.panY + (rz * a.tilt - y) * a.scale,
         depth: rz,
       };
     }
@@ -220,7 +315,7 @@ export const LivingCityPage: React.FC<LivingCityPageProps> = ({ onNavigateTab })
       ctx.setLineDash([]);
     }
 
-    function box(x: number, y: number, z: number, w: number, h: number, d: number, colors: string[], edge?: string) {
+    function box(x: number, y: number, z: number, w: number, h: number, d: number, colors: string[], edge?: string, hasWindows = false) {
       const X = x + w / 2, L = x - w / 2, Z = z + d / 2, B = z - d / 2;
       const faces = [
         { dep: P(x, 0, Z).depth, p: [[L, y, Z], [X, y, Z], [X, y + h, Z], [L, y + h, Z]] as [number, number, number][], c: colors[1] },
@@ -230,630 +325,424 @@ export const LivingCityPage: React.FC<LivingCityPageProps> = ({ onNavigateTab })
       ];
       faces.sort((f1, f2) => f1.dep - f2.dep);
       for (const f of faces) poly(f.p, f.c, edge, 0.5);
-      poly([[L, y + h, B], [X, y + h, B], [X, y + h, Z], [L, y + h, Z]], colors[0], edge, 0.5);
-    }
+      // Top roof
+      poly([[L, y + h, B], [X, y + h, B], [X, y + h, Z], [L, y + h, Z]], colors[0], edge, 0.75);
 
-    function text3(str: string, x: number, y: number, z: number, color = '#578073', size = 8) {
-      if (!ctx) return;
-      const p = P(x, y, z);
-      ctx.font = size + 'px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = color;
-      ctx.fillText(str, p.x, p.y);
-    }
-
-    function ring(x: number, y: number, z: number, r: number, color: string, width = 1) {
-      if (!ctx) return;
-      ctx.beginPath();
-      for (let i = 0; i <= 60; i++) {
-        const ang = (i / 60) * Math.PI * 2;
-        const p = P(x + Math.cos(ang) * r, y, z + Math.sin(ang) * r);
-        if (i) {
-          ctx.lineTo(p.x, p.y);
-        } else {
-          ctx.moveTo(p.x, p.y);
-        }
-      }
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width;
-      ctx.stroke();
-    }
-
-    function drawBuilding(b: any, ghost = false) {
-      const { x, z, w, d, h } = b;
-      const y = ghost ? -100 : 3;
-      let colors: string[];
-      if (ghost) colors = ['#a498ca55', '#715f9855', '#8c7cb355'];
-      else if (night) colors = b.kind === 'white' ? ['#5a746d', '#37544d', '#294940'] : ['#254c49', '#142f31', '#1e3b3b'];
-      else colors = b.kind === 'white' ? ['#eeeede', '#c5d1c1', '#aabcb0'] : b.kind === 'glass' ? ['#65877b', '#294c49', '#3b625b'] : ['#759487', '#49695f', '#5b7e6d'];
-      if (b.kind === 'core' && !ghost) colors = night ? ['#478e78', '#1f4b42', '#2e6555'] : ['#c0ddc9', '#3b6b5c', '#5d9479'];
-      box(x, y, z, w, h, d, colors, ghost ? '#d6c7ff44' : night ? '#7ba88c33' : '#e2eddb33');
-    }
-
-    function drawTree(o: any) {
-      if (!ctx) return;
-      const { x, z, h, r } = o;
-      box(x, 2, z, 2, h * 0.6, 2, ['#72836b', '#5c7159', '#687f60']);
-      const p = P(x, h, z);
-      ctx.fillStyle = night ? '#315d4b' : '#82a883';
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, r * a.scale, r * 1.3 * a.scale, 0, 0, 7);
-      ctx.fill();
-    }
-
-    function drawRoad(x: number, z: number, w: number, d: number) {
-      poly([[x - w / 2, 2, z - d / 2], [x + w / 2, 2, z - d / 2], [x + w / 2, 2, z + d / 2], [x - w / 2, 2, z + d / 2]], night ? '#1a3434' : '#7d9290');
-      if (w > d) line([[x - w / 2, 2.1, z], [x + w / 2, 2.1, z]], night ? '#aec4ac66' : '#dbe5ce', 0.9, [5, 7]);
-      else line([[x, 2.1, z - d / 2], [x, 2.1, z + d / 2]], night ? '#aec4ac66' : '#dbe5ce', 0.9, [5, 7]);
-    }
-
-    function drawGround() {
-      box(0, -22, 0, 535, 22, 500, night ? ['#29483d', '#142c29', '#1c3730'] : ['#becdb5', '#879e88', '#9bb199']);
-      poly([[-265, 1, -247], [265, 1, -247], [265, 1, 247], [-265, 1, 247]], night ? '#305243' : '#c8d7bc');
-      // Canal
-      poly([[-65, 2, -246], [-27, 2, -246], [-27, 2, 246], [-65, 2, 246]], night ? '#193f49' : '#75b3b3');
-      line([[-67, 3, -247], [-67, 3, 247]], '#dbdfc0', 3);
-      line([[-25, 3, -247], [-25, 3, 247]], '#dbdfc0', 3);
-      // Roads
-      drawRoad(-150, -110, 225, 24);
-      drawRoad(131, -110, 266, 24);
-      drawRoad(-150, 118, 225, 25);
-      drawRoad(131, 118, 266, 25);
-      drawRoad(-85, 0, 22, 480);
-      drawRoad(5, 0, 24, 480);
-      drawRoad(170, 0, 20, 480);
-      drawRoad(93, 0, 18, 480);
-      text3('NORTH QUARTER', -150, 4, -230, night ? '#a3c6a4' : '#65806c', 8);
-      text3('AEGIS SECURE CAMPUS', 150, 4, 232, night ? '#a3c6a4' : '#65806c', 8);
-    }
-
-    function drawHardware() {
-      for (const d of CITY_DEVICES) {
-        if (d.key === 'gateway') continue;
-        line([[d.x, 3, d.z], [d.x, d.y - 5, d.z]], night ? '#a0c5ac' : '#536e5b', 2);
-        if (d.key === 'camera') {
-          box(d.x + 5, d.y - 8, d.z, 19, 7, 9, ['#e0e9d8', '#7d998c', '#c2d2bf']);
-          box(d.x + 15, d.y - 8, d.z, 3, 5, 7, ['#294e49', '#294e49', '#173a34']);
-        } else if (d.key === 'signal') {
-          box(d.x, d.y - 7, d.z, 8, 21, 7, ['#304d42', '#203c35', '#3d5b4c']);
-        } else if (d.key === 'power') {
-          box(d.x, 4, d.z, 28, 21, 24, ['#c8dabd', '#809a82', '#a3b99b']);
-        } else {
-          box(d.x, d.y - 5, d.z, 13, 6, 10, ['#dbe9ca', '#80a18a', '#a4c0a0']);
+      // Window lights
+      if (hasWindows && night && ctx) {
+        const winColor = 'rgba(245, 188, 98, 0.7)';
+        for (let row = y + 10; row < y + h - 8; row += 12) {
+          const p1 = P(L + 3, row, Z + 0.1);
+          const p2 = P(X - 3, row, Z + 0.1);
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.strokeStyle = winColor;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
         }
       }
     }
 
-    function drawPhantom() {
-      if (!ctx || a.mirror < 0.01) return;
-      ctx.save();
-      ctx.globalAlpha = a.mirror * 0.75;
-      box(360, -120, 20, 190, 8, 250, ['#b5a4d044', '#76628c66', '#87739c66']);
-      for (let i = 0; i < 4; i++) {
-        box(325 + (i % 2) * 65, -112, -45 + Math.floor(i / 2) * 90, 35, 40 + i * 12, 35, ['#b5a4dd77', '#77628f99', '#9d88bc77'], '#cbb6f177');
-      }
-      ring(360, -103, 20, 65 + Math.sin(a.t) * 4, '#a087c7', 1);
-      text3('PHANTOM DISTRICT (ISOLATED DECOY)', 360, -115, 160, night ? '#d2b5f4' : '#806394', 9);
-      ctx.restore();
-    }
-
-    function renderLoop(now: number) {
+    // Main render frame
+    function render(timestamp: number) {
       if (!ctx || !canvas) return;
-      const W = window.innerWidth;
-      const H = window.innerHeight;
-      const delta = Math.min((now - a.previous) / 1000, 0.05) || 0;
-      a.previous = now;
+      if (!a.previous) a.previous = timestamp;
+      const dt = Math.min((timestamp - a.previous) / 1000, 0.1);
+      a.previous = timestamp;
 
-      if (!paused) {
-        a.t += delta;
-        for (const c of cars) {
-          c.p = (c.p + delta * c.speed) % 1;
-        }
+      const W = canvas.parentElement?.clientWidth || window.innerWidth;
+      const H = canvas.parentElement?.clientHeight || window.innerHeight;
+      a.centerX = W / 2;
+      a.centerY = H / 2;
+      a.scale = Math.min(W / 1100, H / 760) * a.zoom;
+
+      // Smooth auto orbit if not dragging
+      if (a.autoOrbit && !a.drag && !motionReduced) {
+        a.targetAngle += dt * 0.08;
       }
 
-      if (autoOrbit && !a.drag && !paused) {
-        a.targetAngle += delta * 0.025;
+      // Smooth camera interpolation
+      a.angle += (a.targetAngle - a.angle) * 0.08;
+      a.zoom += (a.targetZoom - a.zoom) * 0.08;
+
+      if (!paused && !motionReduced) {
+        a.t += dt;
       }
 
-      a.angle += (a.targetAngle - a.angle) * 0.06;
-      a.zoom += (a.targetZoom - a.zoom) * 0.07;
-      a.mirror += (a.mirrorTarget - a.mirror) * 0.04;
+      // Background clear
+      ctx.clearRect(0, 0, W, H);
 
-      const mobile = W < 700;
-      const tx = W * (mobile ? 0.53 : exploring ? 0.56 : 0.67) + a.panX;
-      const ty = H * (mobile ? 0.63 : 0.57) + a.panY;
-      a.centerX += (tx - a.centerX) * 0.06;
-      a.centerY += (ty - a.centerY) * 0.06;
-      a.scale = baseScale(W, H) * a.zoom;
-
-      // Clear & Background gradient
-      const grad = ctx.createLinearGradient(0, 0, W, H);
+      // Gradient background
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
       if (night) {
-        grad.addColorStop(0, '#0b2529');
-        grad.addColorStop(1, '#1c3c37');
+        bgGrad.addColorStop(0, '#060A16');
+        bgGrad.addColorStop(0.5, '#080D1B');
+        bgGrad.addColorStop(1, '#050711');
       } else {
-        grad.addColorStop(0, '#e9ede3');
-        grad.addColorStop(0.6, '#d3e2da');
-        grad.addColorStop(1, '#bed7cc');
+        bgGrad.addColorStop(0, '#0F1A30');
+        bgGrad.addColorStop(1, '#091022');
       }
-      ctx.fillStyle = grad;
+      ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, W, H);
 
-      drawPhantom();
-      drawGround();
+      // Base Ground Plane
+      const groundSize = 340;
+      const groundFill = night ? '#0A1024' : '#101B36';
+      poly(
+        [
+          [-groundSize, -2, -groundSize],
+          [groundSize, -2, -groundSize],
+          [groundSize, -2, groundSize],
+          [-groundSize, -2, groundSize],
+        ],
+        groundFill,
+        'rgba(55, 221, 224, 0.15)',
+        1
+      );
 
-      const objects = [
-        ...buildings.map(b => ({ z: P(b.x, 0, b.z).depth, fn: () => drawBuilding(b) })),
-        ...trees.map(o => ({ z: P(o.x, 0, o.z).depth, fn: () => drawTree(o) })),
-      ];
-      objects.sort((o1, o2) => o1.z - o2.z);
-      objects.forEach(o => o.fn());
+      // Main Roads (Crossroads)
+      const roadColor = night ? '#0E172E' : '#14203D';
+      // X-Road
+      poly([[-groundSize, 0, -22], [groundSize, 0, -22], [groundSize, 0, 22], [-groundSize, 0, 22]], roadColor);
+      // Z-Road
+      poly([[-22, 0, -groundSize], [22, 0, -groundSize], [22, 0, groundSize], [-22, 0, groundSize]], roadColor);
 
-      drawHardware();
+      // Road markings (Cyan dashed lane lines)
+      line([[-groundSize, 1, 0], [groundSize, 1, 0]], 'rgba(55, 221, 224, 0.45)', 1.5, [8, 12]);
+      line([[0, 1, -groundSize], [0, 1, groundSize]], 'rgba(55, 221, 224, 0.45)', 1.5, [8, 12]);
 
-      // Position HTML device marker elements
-      for (const d of CITY_DEVICES) {
-        const markerEl = document.getElementById(`city-marker-${d.key}`);
-        if (markerEl) {
-          const pt = P(d.x, d.y + 21, d.z);
-          markerEl.style.left = `${pt.x}px`;
-          markerEl.style.top = `${pt.y}px`;
+      // Phantom Twin Holographic Grid (When active)
+      if (phantomLayer) {
+        const phColor = 'rgba(167, 139, 250, 0.35)';
+        for (let gx = -260; gx <= 260; gx += 40) {
+          line([[gx, 15, -260], [gx, 15, 260]], phColor, 0.75, [4, 8]);
+        }
+        for (let gz = -260; gz <= 260; gz += 40) {
+          line([[-260, 15, gz], [260, 15, gz]], phColor, 0.75, [4, 8]);
         }
       }
 
-      animId = requestAnimationFrame(renderLoop);
+      // Sort and render buildings by depth
+      const sortedBuildings = [...buildings].sort((b1, b2) => P(b1.x, 0, b1.z).depth - P(b2.x, 0, b2.z).depth);
+      for (const b of sortedBuildings) {
+        box(b.x, 0, b.z, b.w, b.h, b.d, b.colors, 'rgba(255, 255, 255, 0.08)', b.windows);
+      }
+
+      // Render Traffic Vehicles
+      for (const car of cars) {
+        if (!paused && !motionReduced) {
+          car.p = (car.p + car.speed) % 1;
+        }
+        let cx = 0, cz = 0;
+        const offset = (car.lane - 1.5) * 8;
+        if (car.axis === 0) {
+          cx = -groundSize + car.p * (groundSize * 2);
+          cz = offset;
+        } else {
+          cx = offset;
+          cz = -groundSize + car.p * (groundSize * 2);
+        }
+
+        // Car box
+        box(cx, 1, cz, 6, 3, 6, [car.color, car.color, car.color]);
+
+        // Car Headlights in Night Mode
+        if (night && ctx) {
+          const pt = P(cx, 2, cz);
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(245, 188, 98, 0.8)';
+          ctx.fill();
+        }
+      }
+
+      // Traffic Signal Node (SIG-02) light beacon
+      const sigLightColor = trafficSignalColor === 'green' ? '#34D399' : trafficSignalColor === 'yellow' ? '#F5BC62' : '#FF7878';
+      const sigPos = P(15, 42, 125);
+      ctx.beginPath();
+      ctx.arc(sigPos.x, sigPos.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = sigLightColor;
+      ctx.shadowColor = sigLightColor;
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Render Interactive Device Markers
+      for (const dev of CITY_DEVICES) {
+        const pos = P(dev.x, dev.y, dev.z);
+        const isPulse = Math.sin(a.t * 3 + dev.x) > 0;
+
+        // Pulsing radar ring
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, isPulse ? 14 : 10, 0, Math.PI * 2);
+        ctx.strokeStyle = dev.color;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Node center marker
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = dev.color;
+        ctx.fill();
+
+        // Label Tag
+        ctx.font = '600 9px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.shadowColor = '#000000';
+        ctx.shadowBlur = 4;
+        ctx.fillText(`${dev.id} ${dev.name}`, pos.x, pos.y - 14);
+        ctx.shadowBlur = 0;
+      }
+
+      animId = requestAnimationFrame(render);
     }
 
-    animId = requestAnimationFrame(renderLoop);
+    animId = requestAnimationFrame(render);
+
+    // Mouse Drag Controls
+    function onMouseDown(e: MouseEvent) {
+      a.drag = true;
+      a.dragX = e.clientX;
+      a.dragY = e.clientY;
+      a.autoOrbit = false;
+    }
+
+    function onMouseMove(e: MouseEvent) {
+      if (!a.drag) return;
+      const dx = e.clientX - a.dragX;
+      const dy = e.clientY - a.dragY;
+      a.targetAngle += dx * 0.005;
+      a.tilt = Math.max(0.25, Math.min(0.9, a.tilt - dy * 0.003));
+      a.dragX = e.clientX;
+      a.dragY = e.clientY;
+    }
+
+    function onMouseUp() {
+      a.drag = false;
+    }
+
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      a.targetZoom = Math.max(0.6, Math.min(2.4, a.targetZoom - e.deltaY * 0.0015));
+    }
+
+    const canvasEl = canvas;
+    canvasEl.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    canvasEl.addEventListener('wheel', onWheel, { passive: false });
 
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
+      canvasEl.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      canvasEl.removeEventListener('wheel', onWheel);
     };
-  }, [night, paused, exploring, autoOrbit]);
-
-  // Pointer drag to orbit city
-  const handlePointerDown = (e: React.PointerEvent) => {
-    animRef.current.drag = true;
-    animRef.current.dragX = e.clientX;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    setAutoOrbit(false);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (animRef.current.drag) {
-      animRef.current.targetAngle += (e.clientX - animRef.current.dragX) * 0.006;
-      animRef.current.dragX = e.clientX;
-    }
-  };
-
-  const handlePointerUp = () => {
-    animRef.current.drag = false;
-  };
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    animRef.current.targetZoom = Math.max(0.6, Math.min(1.7, animRef.current.targetZoom - e.deltaY * 0.00065));
-  };
-
-  // Select Device Marker
-  const handleSelectDevice = (key: string) => {
-    setExploring(true);
-    setSelectedDeviceKey(key);
-    setAutoOrbit(false);
-    animRef.current.targetZoom = 1.15;
-  };
-
-  // Real Backend Drill B: Controlled Honeypot Intrusion
-  const handleSimulateIntrusion = async () => {
-    setActionLoading(true);
-    setIncidentOpen(true);
-    setIncidentType('INTRUSION DRILL / REAL BACKEND');
-    setIncidentTitle('Attacker enters gateway.');
-    setIncidentDetail('Attacker initiates SSH connection to smart city gateway. Gateway evaluates risk score...');
-    setIncidentProgress(1);
-    animRef.current.mirrorTarget = 1;
-    setNetworkStatusText('THREAT DIVERTED');
-    setTrafficText('PRODUCTION UNAFFECTED');
-
-    try {
-      // Step 1: Send attacker discovery command
-      const sid = 'sess-living-city-' + Date.now().toString().slice(-4);
-      await api.simulateDecoyCommand(sid, 'uname -a');
-
-      setTimeout(async () => {
-        setIncidentTitle('Honeytoken Tripwire Activated.');
-        setIncidentDetail('Attacker read canary at /etc/camera/credentials.conf. Maximum hostility flagged on backend!');
-        setIncidentProgress(2);
-
-        // Step 2: Trip honeytoken
-        await api.simulateDecoyCommand(sid, 'cat /etc/camera/credentials.conf');
-
-        setTimeout(async () => {
-          setIncidentTitle('Break-Glass Case Active.');
-          setIncidentDetail('CASE-2026-001 opened under Municipal Privacy Ordinance. Awaiting 2-of-3 custodian approval quorum.');
-          setIncidentProgress(3);
-          setCanApprove(true);
-          setActionLoading(false);
-        }, 1500);
-      }, 1500);
-    } catch (err: any) {
-      setIncidentDetail(`Backend simulation error: ${err.message}`);
-      setActionLoading(false);
-    }
-  };
-
-  // Real Backend Drill B: Custodian Approval & Unmasking
-  const handleApproveRelease = async () => {
-    setActionLoading(true);
-    setIncidentTitle('Cryptographic Quorum Verified.');
-    setIncidentDetail('Custodian 2 (Cybercrime Forensics) approved warrant. Shamir 2-of-3 threshold met. Committing audit ledger block...');
-    setIncidentProgress(4);
-
-    try {
-      const voteResult = await api.voteEscrowCase('CASE-2026-001', 'custodian-2-cybercrime', 'approve');
-      if (voteResult.quorum_achieved) {
-        // Retrieve unmasked facial footage from backend
-        const footage = await api.getCaseFootage('CASE-2026-001');
-        setUnmaskedCrops(footage.crops_base64 || []);
-
-        setIncidentTitle('Contained. Audited. Evidence Released.');
-        setIncidentDetail(`Scoped AES-256 decryption key released (${voteResult.unlocked_key?.slice(0, 16)}...). Audit block persisted before unlock.`);
-        setIncidentProgress(5);
-        setCanApprove(false);
-        setActionLoading(false);
-        showToast('Evidence unlocked: Verified 2-of-3 Shamir Quorum');
-      }
-    } catch (err: any) {
-      setIncidentDetail(`Approval failed: ${err.message}`);
-      setActionLoading(false);
-    }
-  };
-
-  // Real Backend Drill A: False Positive Camera Blinding & Refusal
-  const handleTestFalsePositive = async () => {
-    setActionLoading(true);
-    setIncidentOpen(true);
-    setIncidentType('FALSE-POSITIVE DRILL / PRIVACY GUARANTEE');
-    setIncidentTitle('Camera Anomaly Flagged.');
-    setIncidentDetail('Edge camera cam_01 reports blinding anomaly. Privacy boundary active: Normal feed remains blurred.');
-    setIncidentProgress(1);
-    setNetworkStatusText('ANOMALY REVIEW');
-
-    try {
-      await api.simulateCameraBlind('cam_01');
-
-      setTimeout(async () => {
-        setIncidentTitle('Rogue Unmask Request Rejected.');
-        setIncidentDetail('Operator attempted unmasking without honeypot hostility. Server enforced HTTP 403 Forbidden!');
-        setIncidentProgress(3);
-
-        try {
-          await api.attemptUnauthorized();
-        } catch {
-          // Expected 403 Forbidden!
-        }
-
-        setTimeout(async () => {
-          await api.simulateCameraRecover('cam_01');
-          setIncidentTitle('Privacy Preserved · Case Closed.');
-          setIncidentDetail('Tamper-evident rejection committed to audit hash-chain. Camera cam_01 recovered to normal feed.');
-          setIncidentProgress(4);
-          setActionLoading(false);
-          setNetworkStatusText('05 NODES PROTECTED');
-          showToast('Privacy invariant enforced: Unauthorized unmask denied.');
-        }, 1800);
-      }, 1500);
-    } catch (err: any) {
-      setIncidentDetail(`Simulation error: ${err.message}`);
-      setActionLoading(false);
-    }
-  };
-
-  const handleResetCity = () => {
-    animRef.current.targetAngle = -0.62;
-    animRef.current.targetZoom = 1;
-    animRef.current.mirrorTarget = 0;
-    setSelectedDeviceKey(null);
-    setIncidentOpen(false);
-    setAutoOrbit(true);
-    setStage(0);
-    setNetworkStatusText('05 NODES PROTECTED');
-    setTrafficText('CITY TRAFFIC ACTIVE');
-    showToast('City view reset to nominal.');
-  };
+  }, [night, paused, phantomLayer, trafficSignalColor, motionReduced]);
 
   return (
-    <div className={`living-city-root ${night ? 'night' : ''} ${exploring ? 'exploring' : ''}`}>
+    <div className="city-page-wrap" style={{ position: 'relative', width: '100%', height: 'calc(100vh - 105px)', overflow: 'hidden' }}>
+      {/* 2.5D Living City Canvas */}
       <canvas
-        id="city-canvas"
         ref={canvasRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onWheel={handleWheel}
+        style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          cursor: 'grab',
+        }}
       />
-      <div className="city-grain" />
 
-      {/* Top Header */}
-      <header className="city-header">
-        <a className="city-brand" href="#city" onClick={(e) => { e.preventDefault(); handleResetCity(); }}>
-          <svg viewBox="0 0 36 40">
-            <path d="M18 2 33 10 29 28 18 38 7 28 3 10Z" />
-            <path d="m10 26 8-16 8 16m-13-5h10" />
-          </svg>
-          AEGIS<span>MIRAGE</span>
-        </a>
-
-        <div className="city-header-center">
-          <i></i> A LIVING CITY. A HIDDEN DEFENSE.
-        </div>
-
-        <div className="city-header-right">
-          {/* Navigation to Subsystem Pages */}
-          <nav className="city-nav-links" aria-label="AegisMirage Navigation">
-            <button className="city-nav-btn active" onClick={() => onNavigateTab('city')}>Living City</button>
-            <button className="city-nav-btn" onClick={() => onNavigateTab('console')}>Console ↗</button>
-            <button className="city-nav-btn" onClick={() => onNavigateTab('cameras')}>Cameras ↗</button>
-            <button className="city-nav-btn" onClick={() => onNavigateTab('decoy')}>Decoy ↗</button>
-            <button className="city-nav-btn" onClick={() => onNavigateTab('campaigns')}>Intel ↗</button>
-          </nav>
-
-          <span className={`city-world-tag-badge status-${backendOnline ? 'online' : 'offline'}`} style={{ color: backendOnline ? '#4ade80' : '#f87171', fontFamily: 'monospace', fontSize: '10px' }}>
-            ● {backendOnline ? 'BACKEND 8000 OK' : 'OFFLINE'}
-          </span>
-
-          <button id="city-sound" title="Pause ambient motion" onClick={() => setPaused(!paused)}>
-            {paused ? '▶ Motion' : 'Ⅱ Motion'}
-          </button>
-        </div>
-      </header>
-
-      {/* Hero Intro */}
-      <section className="city-hero" id="city-hero">
-        <div className="city-eyebrow">
-          <span>01 — THE CONNECTED CITY</span>
-          <span className="city-tinyline"></span>
-        </div>
-        <h1>The city<br />never sleeps.<br /><em>Neither do we.</em></h1>
-        <p>
-          Every camera. Every signal. Every connection.<br />
-          A world worth protecting — and a second<br />
-          world built to deceive.
-        </p>
-        <button className="city-solid" onClick={() => { setExploring(true); showToast('Click an IoT node or drag anywhere to orbit.'); }}>
-          Enter the living city <span>↗</span>
-        </button>
-        <div className="city-hero-note">Drag to orbit · Scroll to zoom · Click an IoT node</div>
-      </section>
-
-      {/* Chapter Caption */}
-      <div className="city-chapter-caption" id="city-chapterCaption">
-        <span className="city-eyebrow">EXPLORE / SECTOR 07</span>
-        <h2>A thousand connections.<br />One protected city.</h2>
-        <p>Choose a glowing device to inspect live hardware telemetry.</p>
-      </div>
-
-      <div className="city-world-tag">
-        <i></i> PRODUCTION CITY <span>ONLINE</span>
-      </div>
-
-      {/* 3D Canvas Markers */}
-      <div className="city-markers">
-        {CITY_DEVICES.map(d => (
-          <button
-            key={d.key}
-            id={`city-marker-${d.key}`}
-            className={`city-marker ${selectedDeviceKey === d.key ? 'selected' : ''}`}
-            aria-label={`Inspect ${d.name}`}
-            onClick={() => handleSelectDevice(d.key)}
-          >
-            <span className="city-pin">{d.icon}</span>
-            <span className="city-name">{d.name} ↗</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Scene Controls */}
-      <div className="city-scene-controls">
-        <button id="city-rotate" title="Toggle auto orbit" onClick={() => setAutoOrbit(!autoOrbit)}>
-          ↻ <span>{autoOrbit ? 'Orbit on' : 'Orbit off'}</span>
-        </button>
-        <button title="Zoom in" onClick={() => animRef.current.targetZoom = Math.min(1.7, animRef.current.targetZoom + 0.15)}>＋</button>
-        <button title="Zoom out" onClick={() => animRef.current.targetZoom = Math.max(0.6, animRef.current.targetZoom - 0.15)}>−</button>
-        <button title="Reset city view" onClick={handleResetCity}>⌂</button>
-        <button title="Toggle night mode" onClick={() => setNight(!night)}>{night ? '☀' : '☾'}</button>
-      </div>
-
-      {/* Inspector Sidebar */}
-      <aside className={`city-inspector ${selectedDeviceKey ? 'open' : ''}`}>
-        <div className="city-inspect-head">
-          <span className="city-eyebrow">
-            {selectedDeviceKey === 'camera' ? 'CAM-01 / EDGE SENTRY' :
-             selectedDeviceKey === 'gateway' ? 'GW-05 / PHANTOM TWIN' :
-             selectedDeviceKey === 'signal' ? 'SIG-02 / MOBILITY' :
-             selectedDeviceKey === 'power' ? 'PWR-03 / ENERGY' : 'ENV-04 / SENSOR'}
-          </span>
-          <button onClick={() => setSelectedDeviceKey(null)}>×</button>
-        </div>
-
-        <h2>
-          {selectedDeviceKey === 'camera' ? 'North Gate Camera' :
-           selectedDeviceKey === 'gateway' ? 'Aegis Deception Gateway' :
-           selectedDeviceKey === 'signal' ? 'Adaptive Traffic Signal' :
-           selectedDeviceKey === 'power' ? 'Municipal Power Grid' : 'Civic Air Quality Sensor'}
-        </h2>
-
-        <div className="city-device-status">
-          <i></i>
-          <span>
-            {selectedDeviceKey === 'camera' ? `Protected · YuNet Face Blur Active (${cameraData?.status || 'Active'})` :
-             selectedDeviceKey === 'gateway' ? `Online · ${decoyData?.active_sessions_count || 0} Decoy Sessions Contained` :
-             'Online · Operating in Production Mesh'}
-          </span>
-        </div>
-
-        {/* Live Visual / Frame */}
-        <div className="city-device-visual">
-          {selectedDeviceKey === 'camera' ? (
-            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-              <img
-                src={`${api.getCameraFrameUrl('cam_01')}?t=${frameTimestamp}`}
-                alt="Live Camera Feed with Face Redaction"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                onError={(e) => {
-                  // Fallback synthetic placeholder if backend stream paused
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-              <span style={{ position: 'absolute', bottom: 6, left: 8, font: '8px monospace', color: '#cbe6c8', background: '#0008', padding: '2px 4px' }}>
-                YUNET BLUR APPLIED · REAL BACKEND
-              </span>
-            </div>
-          ) : (
-            <svg viewBox="0 0 260 135">
-              <path d="M25 68h70l35-35 35 35h70M130 33v70" stroke="#abcfae" strokeWidth="1" fill="none" />
-              <circle cx="130" cy="68" r="16" fill="#a891cc" />
-              <text x="130" y="72" textAnchor="middle" fill="#fff" fontSize="9" fontFamily="monospace">
-                {selectedDeviceKey?.toUpperCase()}
-              </text>
-            </svg>
-          )}
-        </div>
-
-        <p>
-          {selectedDeviceKey === 'camera' ? 'Face redaction is enforced at the edge. Raw unblurred crops remain encrypted in hardware storage until released by dual-custodian break-glass quorum.' :
-           selectedDeviceKey === 'gateway' ? 'Dynamic scoring routes untrusted traffic into isolated decoy twins. Attacker attempts are analyzed statically without executing malware on the host.' :
-           'Smart city municipal infrastructure node monitored by the AegisMirage distributed telemetry mesh.'}
-        </p>
-
-        <div className="city-device-metrics">
-          {selectedDeviceKey === 'camera' ? (
-            <>
-              <div><span>FPS</span><strong>{cameraData?.fps || 24}</strong></div>
-              <div><span>STORAGE</span><strong>{cameraData?.storage_encrypted_crops || 1} CROPS</strong></div>
-              <div><span>SECURITY</span><strong>AES-GCM</strong></div>
-            </>
-          ) : selectedDeviceKey === 'gateway' ? (
-            <>
-              <div><span>ISOLATED</span><strong>{decoyData?.active_sessions_count || 3} SESSIONS</strong></div>
-              <div><span>HONEYTOKENS</span><strong>{decoyData?.honeytoken_hits || 1} HITS</strong></div>
-              <div><span>ROUTING</span><strong>DECOY</strong></div>
-            </>
-          ) : (
-            <>
-              <div><span>STATUS</span><strong>ACTIVE</strong></div>
-              <div><span>TELEMETRY</span><strong>MQTT</strong></div>
-              <div><span>LATENCY</span><strong>0.2 ms</strong></div>
-            </>
-          )}
-        </div>
-
-        <button
-          className="city-solid city-full"
-          disabled={actionLoading}
-          onClick={() => {
-            if (selectedDeviceKey === 'camera') {
-              handleTestFalsePositive();
-            } else if (selectedDeviceKey === 'gateway') {
-              handleSimulateIntrusion();
-            } else {
-              showToast('Signal command dispatched to production mesh');
-            }
+      {/* Top Overlay: District & Mesh Telemetry Banner */}
+      <div
+        className="city-telemetry-banner"
+        style={{
+          position: 'absolute',
+          top: '1rem',
+          left: '1.5rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.6rem',
+          zIndex: 10,
+          pointerEvents: 'none',
+        }}
+      >
+        <div
+          style={{
+            background: 'rgba(17, 27, 49, 0.88)',
+            border: '1px solid var(--border-medium)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.75rem 1.25rem',
+            backdropFilter: 'blur(16px)',
+            pointerEvents: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1.25rem',
           }}
         >
-          {selectedDeviceKey === 'camera' ? 'Simulate Camera Anomaly ↗' :
-           selectedDeviceKey === 'gateway' ? 'Run Intrusion Drill ↗' :
-           'Send Test Control Signal ↗'}
-        </button>
-
-        <div className="city-inspector-note">Connected to real AegisMirage FastAPI backend</div>
-      </aside>
-
-      {/* Incident Panel */}
-      <section className={`city-incident ${incidentOpen ? 'open' : ''}`}>
-        <div className="city-incident-top">
-          <span>{incidentType}</span>
-          <button onClick={() => setIncidentOpen(false)}>×</button>
+          <div>
+            <div style={{ fontSize: '0.675rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              Cyber-Physical Surveillance Defense
+            </div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em' }}>
+              Metro Cyber Mesh Grid Alpha
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <Badge variant="production">5 NODES ACTIVE</Badge>
+            <Badge variant="deception">{decoyTelemetry ? `${decoyTelemetry.active_sessions_count} SESSIONS MONITORED` : phantomLayer ? 'PHANTOM TWIN ARMED' : 'MIRROR STANDBY'}</Badge>
+            <Badge variant="success">YUNET FACE BLUR ON</Badge>
+          </div>
         </div>
 
-        <h3>{incidentTitle}</h3>
-        <p>{incidentDetail}</p>
+        {/* Drill Active Notification Banner */}
+        {activeDrill && (
+          <div
+            style={{
+              background: 'rgba(255, 120, 120, 0.16)',
+              border: '1px solid var(--border-danger)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '0.5rem 0.85rem',
+              color: '#FFB8B8',
+              fontSize: '0.775rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              animation: 'fadeIn 200ms ease',
+            }}
+          >
+            <span>🚨</span>
+            <strong>{activeDrill}</strong>
+          </div>
+        )}
+      </div>
 
-        <div className="city-progress">
-          {[1, 2, 3, 4, 5].map(step => (
-            <i key={step} className={incidentProgress >= step ? 'done' : ''} />
+      {/* Right-Top Controls: Zoom, Day/Night, Orbit */}
+      <div
+        className="city-controls-cluster"
+        style={{
+          position: 'absolute',
+          top: '1rem',
+          right: '1.5rem',
+          display: 'flex',
+          gap: '0.5rem',
+          zIndex: 10,
+        }}
+      >
+        <button
+          type="button"
+          className="btn btn-surface btn-xs"
+          onClick={() => setNight(!night)}
+          title="Toggle Day/Midnight Lighting"
+        >
+          {night ? '🌙 Midnight Mode' : '☀️ Day Mode'}
+        </button>
+
+        <button
+          type="button"
+          className={`btn btn-xs ${phantomLayer ? 'btn-deception' : 'btn-surface'}`}
+          onClick={() => setPhantomLayer(!phantomLayer)}
+          title="Toggle Phantom Twin Deception Layer Overlay"
+        >
+          🪞 Phantom Overlay: {phantomLayer ? 'ON' : 'OFF'}
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-surface btn-xs"
+          onClick={() => setPaused(!paused)}
+          title="Pause Traffic Animation"
+        >
+          {paused ? '▶ Resume' : '⏸ Pause'}
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-surface btn-xs"
+          onClick={handleResetCamera}
+          title="Reset Camera Angle & Center"
+        >
+          🎯 Reset Camera
+        </button>
+      </div>
+
+      {/* Bottom Floating Bar: Quick Device Selectors & Hackathon Drill Triggers */}
+      <div
+        className="city-bottom-dock"
+        style={{
+          position: 'absolute',
+          bottom: '1rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(17, 27, 49, 0.92)',
+          border: '1px solid var(--border-medium)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '0.65rem 1rem',
+          backdropFilter: 'blur(20px)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1rem',
+          zIndex: 10,
+          boxShadow: 'var(--shadow-lg)',
+          maxWidth: '92vw',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+        }}
+      >
+        {/* Device Selectors */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+            Select Node:
+          </span>
+          {CITY_DEVICES.map((dev) => (
+            <button
+              key={dev.id}
+              type="button"
+              className="btn btn-surface btn-xs"
+              onClick={() => handleSelectDevice(dev)}
+              style={{
+                borderColor: dev.color,
+                color: '#FFFFFF',
+              }}
+            >
+              <span>{dev.icon}</span>
+              <span>{dev.id}</span>
+            </button>
           ))}
         </div>
 
-        {/* Display unmasked face crops when quorum achieved */}
-        {unmaskedCrops.length > 0 && (
-          <div style={{ margin: '10px 0', padding: '8px', background: '#0b1d1b', borderRadius: '4px', border: '1px solid #34d39944' }}>
-            <span style={{ font: '9px monospace', color: '#34d399', display: 'block', marginBottom: '6px' }}>
-              ✓ UNMASKED FACIAL EVIDENCE (CASE-2026-001)
-            </span>
-            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto' }}>
-              {unmaskedCrops.map((b64, idx) => (
-                <img
-                  key={idx}
-                  src={`data:image/jpeg;base64,${b64}`}
-                  alt={`Unmasked Crop ${idx + 1}`}
-                  style={{ width: '70px', height: '70px', borderRadius: '3px', border: '1px solid #10b981' }}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+        <div style={{ width: '1px', height: '24px', background: 'var(--border-subtle)' }} />
 
-        <div className="city-incident-actions">
-          {canApprove && (
-            <button className="city-solid" onClick={handleApproveRelease} disabled={actionLoading}>
-              {actionLoading ? 'Verifying Quorum...' : 'Approve Warrant Release →'}
-            </button>
-          )}
-          <button onClick={() => setIncidentOpen(false)}>Dismiss</button>
+        {/* Drill Simulation Triggers */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+            Live Drills:
+          </span>
+          <button
+            type="button"
+            className="btn btn-danger btn-xs"
+            onClick={handleRunDrillA}
+            disabled={drillRunning}
+            title="Drill A: Simulate camera blinding on CAM-01 and verify rogue unmask request refusal (HTTP 403)"
+          >
+            {drillRunning ? '⏳ Running...' : 'Drill A: Blinding & Denial'}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-deception btn-xs"
+            onClick={handleRunDrillB}
+            disabled={drillRunning}
+            title="Drill B: Trip canary honeytoken in Phantom Twin and verify 2-of-3 Shamir quorum facial unmask"
+          >
+            {drillRunning ? '⏳ Running...' : 'Drill B: Honeypot & Quorum'}
+          </button>
         </div>
-      </section>
-
-      {/* Toast Notification */}
-      <div className={`city-toast ${toastMessage ? 'show' : ''}`}>
-        {toastMessage}
       </div>
-
-      {/* Footer Controls */}
-      <footer className="city-footer">
-        <div className="city-journey">
-          <button className={stage === 0 ? 'active' : ''} onClick={() => { setStage(0); setExploring(true); }}>
-            <span>01</span> The Living City <i></i>
-          </button>
-          <button className={stage === 1 ? 'active' : ''} onClick={() => { setStage(1); handleSelectDevice('camera'); }}>
-            <span>02</span> Edge Sentry <i></i>
-          </button>
-          <button className={stage === 2 ? 'active' : ''} onClick={() => { setStage(2); handleSelectDevice('gateway'); }}>
-            <span>03</span> The Mirage <i></i>
-          </button>
-          <button className={stage === 3 ? 'active' : ''} onClick={() => { setStage(3); onNavigateTab('campaigns'); }}>
-            <span>04</span> Escrow & Intel <i></i>
-          </button>
-        </div>
-
-        <div className="city-footer-line">
-          <div className="city-network-state">
-            <i></i> <strong>{networkStatusText}</strong>
-            <span>—</span>
-            <span>{trafficText}</span>
-          </div>
-
-          <div className="city-scenario-actions">
-            <button id="city-falsePositive" onClick={handleTestFalsePositive} disabled={actionLoading}>
-              Test false positive
-            </button>
-            <button id="city-attack" onClick={handleSimulateIntrusion} disabled={actionLoading}>
-              Simulate intrusion <span>↗</span>
-            </button>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 };
