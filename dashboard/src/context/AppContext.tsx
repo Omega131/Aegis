@@ -34,6 +34,9 @@ interface AppContextValue {
   setInspectorOpen: (open: boolean) => void;
   motionReduced: boolean;
   setMotionReduced: (reduced: boolean) => void;
+  theme: 'light' | 'dark';
+  setTheme: (theme: 'light' | 'dark') => void;
+  toggleTheme: () => void;
   systemHealth: SystemHealth | null;
   toasts: ToastMessage[];
   addToast: (title: string, desc?: string, type?: ToastMessage['type']) => void;
@@ -51,6 +54,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return 'city';
   });
+
+  const [theme, setThemeState] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('aegismirage_theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    return 'light'; // Default to pristine light green theme
+  });
+
+  const setTheme = useCallback((newTheme: 'light' | 'dark') => {
+    setThemeState(newTheme);
+    localStorage.setItem('aegismirage_theme', newTheme);
+    document.documentElement.setAttribute('data-theme', newTheme);
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme(theme === 'light' ? 'dark' : 'light');
+  }, [theme, setTheme]);
+
+  // Sync data-theme attribute on mount & change
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
 
   const [selectedDevice, setSelectedDevice] = useState<SelectedDeviceContext | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -137,6 +161,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setInspectorOpen,
         motionReduced,
         setMotionReduced,
+        theme,
+        setTheme,
+        toggleTheme,
         systemHealth,
         toasts,
         addToast,

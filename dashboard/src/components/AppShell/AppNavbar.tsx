@@ -2,7 +2,7 @@ import React from 'react';
 import { useApp } from '../../context/AppContext';
 
 export const AppNavbar: React.FC = () => {
-  const { activeTab, setActiveTab, systemHealth } = useApp();
+  const { activeTab, setActiveTab, systemHealth, theme, toggleTheme } = useApp();
 
   const isOnline = systemHealth?.status === 'ok';
 
@@ -82,6 +82,23 @@ export const AppNavbar: React.FC = () => {
       </nav>
 
       <div className="navbar-actions">
+        {/* Dark / Light Mode Toggle Button */}
+        <button
+          type="button"
+          className="theme-toggle-btn"
+          onClick={toggleTheme}
+          title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
+          aria-label="Toggle theme mode"
+          id="theme-mode-toggle-btn"
+        >
+          <span className="theme-toggle-icon" aria-hidden="true">
+            {theme === 'light' ? '🌙' : '☀️'}
+          </span>
+          <span className="theme-toggle-label">
+            {theme === 'light' ? 'Dark' : 'Light'}
+          </span>
+        </button>
+
         <div className="demo-env-indicator" title={isOnline ? "Unified FastAPI Backend Connected" : "Connecting to backend..."}>
           <span className={`pulse-dot ${isOnline ? 'online' : 'checking'}`} />
           <span className="demo-env-label">Demo environment</span>

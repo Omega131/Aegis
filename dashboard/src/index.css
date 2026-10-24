@@ -94,6 +94,67 @@
 }
 
 /* =============================================================================
+   AegisMirage Architectural Dark Obsidian Theme
+   Activates when data-theme="dark" is set on <html>
+   ============================================================================= */
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Color Palette — Deep Obsidian & Emerald Surfaces */
+  --bg-app: #0B130E;
+  --bg-primary: #0B130E;
+  --bg-secondary: #121F17;
+  --bg-surface: #15251C;
+  --bg-card: #15251C;
+  --bg-surface-elevated: #1B2F23;
+  --bg-card-hover: #1E3427;
+  --bg-surface-subtle: #0E1812;
+  --bg-surface-active: #223D2E;
+  --bg-surface-hover: #1E3427;
+  --bg-surface-glass: rgba(21, 37, 28, 0.94);
+
+  /* Primary Theme Brand Accents */
+  --accent-light-green: #34D399;
+  --accent-primary: #10B981;
+  --accent-primary-hover: #059669;
+  --accent-primary-subtle: rgba(16, 185, 129, 0.16);
+  --accent-mint: rgba(16, 185, 129, 0.18);
+
+  /* Typography Colors */
+  --text-primary: #F0FDF4;
+  --text-secondary: #9DB4A5;
+  --text-muted: #6B8574;
+  --text-inverse: #0B130E;
+
+  /* Borders */
+  --border-subtle: #1F3528;
+  --border-medium: #2A4535;
+  --border-strong: #3D634D;
+  --border-production: #10B981;
+  --border-deception: #1F3528;
+  --border-danger: rgba(239, 68, 68, 0.45);
+  --border-review: rgba(245, 158, 11, 0.45);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 16px 36px rgba(0, 0, 0, 0.7);
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-track {
+  background: #0B130E;
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: #2A4535;
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
+  background: #3D634D;
+}
+
+/* =============================================================================
    Global Reset & Base Setup
    ============================================================================= */
 
@@ -335,11 +396,37 @@ code, kbd, samp, pre {
   color: var(--accent-primary);
 }
 
-/* Navbar Right Status */
+/* Navbar Right Status & Theme Toggle */
 .navbar-actions {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.85rem;
+}
+
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 0.35rem 0.85rem;
+  font-size: 0.775rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.theme-toggle-btn:hover {
+  background: var(--bg-surface-active);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: translateY(-1px);
+}
+
+.theme-toggle-icon {
+  font-size: 0.9rem;
 }
 
 .demo-env-indicator {
