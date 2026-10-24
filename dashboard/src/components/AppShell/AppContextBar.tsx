@@ -31,7 +31,7 @@ export const AppContextBar: React.FC = () => {
     <div className="app-context-bar" id="app-context-bar">
       <div className="context-bar-left">
         <div className="breadcrumbs">
-          <span>AegisMirage</span>
+          <span>Aeigs</span>
           <span>/</span>
           <span className="breadcrumb-curr">
             <span style={{ marginRight: '0.35rem' }}>{currentRoute.icon}</span>

@@ -343,6 +343,19 @@ code, kbd, samp, pre {
   transform: scale(1.05);
 }
 
+.brand-logo-img {
+  width: 34px;
+  height: 38px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(36, 107, 69, 0.4));
+  transition: transform var(--transition-fast), filter var(--transition-fast);
+}
+
+.navbar-brand-wrap:hover .brand-logo-img {
+  transform: scale(1.08);
+  filter: drop-shadow(0 3px 12px rgba(46, 204, 113, 0.6));
+}
+
 .brand-name {
   font-size: 1.25rem;
   font-weight: 800;

@@ -906,7 +906,7 @@ export const LivingCityPage: React.FC = () => {
           Micro Sub-Bar (Matching Reference Layout)
           ======================================================================= */}
       <footer className="city-sub-footer-bar">
-        <span>AEGISMIRAGE / SMART DISTRICT</span>
+        <span>AEIGS / SMART DISTRICT</span>
         <span>
           {systemHealth?.status === 'ok'
             ? 'LIVE TELEMETRY • FASTAPI ACTIVE'
@@ -942,7 +942,7 @@ export const LivingCityPage: React.FC = () => {
             </div>
 
             <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-              Execute live security validation scenarios against the unified AegisMirage backend with full cryptographic logging.
+              Execute live security validation scenarios against the unified Aeigs backend with full cryptographic logging.
             </p>
 
             {/* Drill A */}

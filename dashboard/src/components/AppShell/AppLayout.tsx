@@ -37,7 +37,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       {activeTab !== 'city' && (
         <footer className="shell-footer" id="shell-footer">
           <div className="footer-left">
-            <span>AegisMirage — Living Defense Observatory</span>
+            <span>Aeigs — Living Defense Observatory</span>
             <span className="footer-dot" />
             <span>ChronoForge Hackathon</span>
             <span className="footer-dot" />
