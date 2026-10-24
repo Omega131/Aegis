@@ -52,7 +52,7 @@ export const CamerasPage: React.FC = () => {
     fetchCameras();
     fetchEvents();
 
-    const camTimer = setInterval(fetchCameras, 2000);
+    const camTimer = setInterval(fetchCameras, 2500);
     const evTimer = setInterval(fetchEvents, 2500);
     const frameTimer = setInterval(() => setFrameTimestamp(Date.now()), 2500);
 

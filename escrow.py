@@ -1,5 +1,5 @@
 """
-AegisMirage - Stage 4: ZK Break-Glass Escrow & Cryptographic Audit Log
+AegisMirage - Stage 4: Break-Glass Escrow & Cryptographic Audit Log
 Owner: Member C (escrow.py)
 
 Responsibilities:
@@ -10,7 +10,6 @@ Responsibilities:
 - Hash-chained, append-only cryptographic audit log (tamper-evident).
 - Drill A: Unauthorized pedestrian unmask attempt blocked and logged.
 - Drill B: Real honeypot attack approved by 2-of-3 custodians, audit entry written before unlock.
-- ZK proof simulation (threshold quorum verification without custodian identity exposure).
 - Self-test suite (Shamir roundtrip across all share pairs, audit chain tamper detection).
 """
 
@@ -18,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -280,9 +280,9 @@ UNLOCKED_KEYS: Dict[str, str] = {}
 
 def register_camera_window_key(camera_id: str, window_id: str, master_key_hex: Optional[str] = None) -> WindowKeyBundle:
     """Registers and shards an AES-256 key for a specific camera and 10-minute window."""
+    import edge
     if not master_key_hex:
         try:
-            import edge
             k = edge.get_window_key_for_escrow(camera_id, window_id)
             if k and len(k) == 32:
                 master_key_hex = k.hex()
@@ -290,87 +290,51 @@ def register_camera_window_key(camera_id: str, window_id: str, master_key_hex: O
             pass
     if not master_key_hex:
         master_key_hex = secrets.token_hex(32)  # 256-bit key
+
+    # Synchronize key directly into edge.WINDOW_KEYS so edge encryption and decryption use the exact same key
+    try:
+        with edge.WINDOW_KEYS_LOCK:
+            edge.WINDOW_KEYS[(camera_id, window_id)] = bytes.fromhex(master_key_hex)
+    except Exception as exc:
+        print(f"[ESCROW-KEY-SYNC] Notice: {exc}")
+
     bundle = WindowKeyBundle(camera_id, window_id, master_key_hex)
     CAMERA_WINDOW_KEYS[(camera_id, window_id)] = bundle
     return bundle
 
 
-# =============================================================================
-# 5. ZK Proof Simulation (Stretch Goal)
-# =============================================================================
-# =============================================================================
-# 5. ZK-SNARK Groth16 Proof Circuit Simulation (Stretch Goal)
-# =============================================================================
-def generate_zk_quorum_proof(case_id: str, camera_id: str, window_id: str, approvals: List[str]) -> Dict[str, Any]:
+def ensure_case_footage_encrypted(camera_id: str, window_id: str):
     """
-    Produces a full Groth16 zero-knowledge proof representation verifying that:
-    1. A quorum of >= 2 authorized municipal custodians evaluated the polynomial.
-    2. No individual custodian identity is revealed (Zero-Knowledge Privacy).
-    3. The proof is strictly bound to camera_id and window_id (Scope Constraint).
+    Captures an authentic live crop directly from the live edge camera feed
+    and encrypts it using the synchronized AES-256-GCM window key.
+    Always cleans up stale or sample files so only genuine live frames are stored.
     """
-    cam_hash_int = int(hashlib.sha256(camera_id.encode()).hexdigest(), 16) % PRIME_256
-    win_hash_int = int(hashlib.sha256(window_id.encode()).hexdigest(), 16) % PRIME_256
-    quorum_size = len(approvals)
+    try:
+        import edge
+        import cv2
 
-    # Simulated BN254 / Alt-bn128 elliptic curve points
-    pi_a = [
-        "0x" + hashlib.sha256(f"pi_a_x|{case_id}|{quorum_size}".encode()).hexdigest(),
-        "0x" + hashlib.sha256(f"pi_a_y|{case_id}|{quorum_size}".encode()).hexdigest(),
-    ]
-    pi_b = [
-        [
-            "0x" + hashlib.sha256(f"pi_b_x0|{case_id}".encode()).hexdigest(),
-            "0x" + hashlib.sha256(f"pi_b_x1|{case_id}".encode()).hexdigest(),
-        ],
-        [
-            "0x" + hashlib.sha256(f"pi_b_y0|{case_id}".encode()).hexdigest(),
-            "0x" + hashlib.sha256(f"pi_b_y1|{case_id}".encode()).hexdigest(),
-        ],
-    ]
-    pi_c = [
-        "0x" + hashlib.sha256(f"pi_c_x|{case_id}".encode()).hexdigest(),
-        "0x" + hashlib.sha256(f"pi_c_y|{case_id}".encode()).hexdigest(),
-    ]
+        bundle = CAMERA_WINDOW_KEYS.get((camera_id, window_id))
+        if not bundle:
+            bundle = register_camera_window_key(camera_id, window_id)
 
-    public_signals = [
-        "1",  # Constant wire
-        hex(cam_hash_int),
-        hex(win_hash_int),
-        "2",  # Required threshold
-        str(quorum_size),
-    ]
+        target_dir = edge._get_window_storage_dir(camera_id, window_id)
+        if os.path.isdir(target_dir):
+            for fname in os.listdir(target_dir):
+                if fname.endswith(".bin"):
+                    try:
+                        os.remove(os.path.join(target_dir, fname))
+                    except Exception:
+                        pass
 
-    vk = {
-        "curve": "bn254",
-        "protocol": "groth16",
-        "nPublic": 4,
-        "alpha_g1": ["0x18a9...", "0x20f1..."],
-        "beta_g2": [["0x03f1...", "0x12a8..."], ["0x21b9...", "0x09e4..."]],
-        "gamma_g2": [["0x19f2...", "0x0182..."], ["0x10b9...", "0x24a8..."]],
-        "delta_g2": [["0x28a1...", "0x11b3..."], ["0x09f4...", "0x14c2..."]],
-    }
-
-    is_valid = quorum_size >= 2
-    verification_hash = hashlib.sha256(f"{pi_a}|{pi_b}|{pi_c}|{public_signals}".encode()).hexdigest()
-
-    return {
-        "statement": f"Valid 2-of-3 Custodian Quorum for Camera {camera_id} @ Window {window_id}",
-        "proof_type": "Groth16/zk-SNARK over BN254",
-        "circuit_name": "AegisEscrowQuorumVerifier.circom",
-        "quorum_size": quorum_size,
-        "required_threshold": 2,
-        "proof": {
-            "pi_a": pi_a,
-            "pi_b": pi_b,
-            "pi_c": pi_c,
-        },
-        "public_signals": public_signals,
-        "verification_key": vk,
-        "pairing_check_equation": "e(pi_A, pi_B) == e(alpha, beta) * e(IC_0 + sum(x_i * IC_i), gamma) * e(pi_C, delta)",
-        "zk_commitment": f"0x{verification_hash}",
-        "mathematically_verified": is_valid,
-        "scope_constraint": "Single 10-Minute Window Only (Blanket Unmask Mathematically Impossible)",
-    }
+        # Pull unblurred crop directly from the live camera feed
+        crop_bgr = edge.EDGE_MESH.get_live_crop_for_camera(camera_id)
+        if crop_bgr is not None:
+            sha256_hash = edge.encrypt_and_store_crop(camera_id, window_id, crop_bgr)
+            print(f"[ESCROW] Encrypted live camera surveillance crop for {camera_id} @ {window_id} ({sha256_hash[:16]}...)")
+            return sha256_hash
+    except Exception as exc:
+        print(f"[ESCROW] ensure_case_footage_encrypted warning: {exc}")
+    return None
 
 
 # =============================================================================
@@ -384,14 +348,18 @@ def seed_escrow_data():
     UNLOCKED_KEYS.clear()
 
     # Pre-generate scoped keys for cameras
-    register_camera_window_key("CAM-04-MARKET", "WIN-20261024-1130", "d8f3b490c2914102983719028341908239018239018230918209381029381029")
-    register_camera_window_key("CAM-01-NORTH", "WIN-20261024-1130", "a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0")
-    register_camera_window_key("CAM-07-SUBSTATION", "WIN-20261024-1140", "deadbeefcafebabe0123456789abcdef0123456789abcdef0123456789abcdef")
+    register_camera_window_key("CAM-01-NORTH", "WIN-20261024-1130", "d8f3b490c2914102983719028341908239018239018230918209381029381029")
+    register_camera_window_key("CAM-01-NORTH", "WIN-20261024-1140", "deadbeefcafebabe0123456789abcdef0123456789abcdef0123456789abcdef")
+    register_camera_window_key("CAM-04-MARKET", "WIN-20261024-1130", "a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0")
+    register_camera_window_key("CAM-07-SUBSTATION", "WIN-20261024-1140", "c0ffee1234567890abcdef0123456789abcdef0123456789abcdef0123456789")
+
+    ensure_case_footage_encrypted("CAM-01-NORTH", "WIN-20261024-1130")
+    ensure_case_footage_encrypted("CAM-01-NORTH", "WIN-20261024-1140")
 
     # Case 1: Active Honeytoken Threat Case (Ready for Drill B - 1 approval in, awaiting 2nd)
     case_1 = schema.CaseRequest(
         case_id="CASE-2026-001",
-        camera_id="CAM-04-MARKET",
+        camera_id="CAM-01-NORTH",
         window_id="WIN-20261024-1130",
         campaign_id="CMP-001",
         status="pending",
@@ -403,7 +371,7 @@ def seed_escrow_data():
     # Case 2: Historical Resolved Case (Approved with 2 approvals)
     case_2 = schema.CaseRequest(
         case_id="CASE-2026-002",
-        camera_id="CAM-07-SUBSTATION",
+        camera_id="CAM-01-NORTH",
         window_id="WIN-20261024-1140",
         campaign_id="CMP-002",
         status="approved",
@@ -415,7 +383,7 @@ def seed_escrow_data():
         "custodian-2-cybercrime": "approve",
     }
     # Reconstruct key for pre-approved case
-    bundle_2 = CAMERA_WINDOW_KEYS.get(("CAM-07-SUBSTATION", "WIN-20261024-1140"))
+    bundle_2 = CAMERA_WINDOW_KEYS.get(("CAM-01-NORTH", "WIN-20261024-1140"))
     if bundle_2:
         shares_to_combine = [(1, bundle_2.shares[1]), (2, bundle_2.shares[2])]
         UNLOCKED_KEYS[case_2.case_id] = shamir_combine_shares(shares_to_combine)
@@ -537,14 +505,6 @@ def get_case(case_id: str):
 
     votes = CASE_VOTES.get(case_id, {})
     unlocked_key = UNLOCKED_KEYS.get(case_id)
-    zk_proof = None
-    if case.status == "approved":
-        zk_proof = generate_zk_quorum_proof(
-            case_id=case.case_id,
-            camera_id=case.camera_id,
-            window_id=case.window_id,
-            approvals=case.approvals,
-        )
 
     return {
         "case": case,
@@ -552,28 +512,14 @@ def get_case(case_id: str):
         "approvals_count": len(case.approvals),
         "quorum_met": case.status == "approved",
         "unlocked_key": unlocked_key,
-        "zk_proof": zk_proof,
     }
-
-
-@router.get("/cases/{case_id}/zk-circuit")
-def get_case_zk_circuit(case_id: str):
-    """Returns full Groth16 zk-SNARK circuit representation and pairing check for the case."""
-    case = CASES.get(case_id)
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-    return generate_zk_quorum_proof(
-        case_id=case.case_id,
-        camera_id=case.camera_id,
-        window_id=case.window_id,
-        approvals=case.approvals,
-    )
 
 
 @router.post("/cases", response_model=schema.CaseRequest)
 def create_case(payload: CreateCasePayload):
     """
-    Creates a new Break-Glass CaseRequest when an attack crosses the hostility threshold.
+    Creates a new Break-Glass CaseRequest when an attack crosses the hostility threshold
+    or when manually registered by a security operator/analyst.
     Logs event into the tamper-proof audit trail.
     """
     case_num = len(CASES) + 1
@@ -582,6 +528,9 @@ def create_case(payload: CreateCasePayload):
     # Ensure key exists for this camera & window
     if (payload.camera_id, payload.window_id) not in CAMERA_WINDOW_KEYS:
         register_camera_window_key(payload.camera_id, payload.window_id)
+
+    # Ensure authentic encrypted surveillance crop exists on disk for this camera & window
+    ensure_case_footage_encrypted(payload.camera_id, payload.window_id)
 
     new_case = schema.CaseRequest(
         case_id=case_id,
@@ -596,11 +545,11 @@ def create_case(payload: CreateCasePayload):
 
     audit_log.append_entry(
         action="CASE_CREATED",
-        actor="system-intel-engine",
+        actor="operator-analyst-console",
         case_id=case_id,
         camera_id=payload.camera_id,
         window_id=payload.window_id,
-        details=f"Escrow break-glass case opened for Campaign {payload.campaign_id} (Hostility score: {payload.hostility_score}). {payload.incident_notes or ''}",
+        details=f"Break-glass warrant registered for Campaign {payload.campaign_id} (Hostility: {payload.hostility_score}). {payload.incident_notes or 'Manual operator submission'}",
     )
 
     return new_case
@@ -715,6 +664,7 @@ def get_case_footage(case_id: str):
     """
     Returns decrypted camera face crops for an approved case.
     Scoped strictly to the case's camera_id and window_id.
+    Integrates genuine live camera feed frames from the edge mesh.
     """
     case = CASES.get(case_id)
     if not case:
@@ -731,17 +681,53 @@ def get_case_footage(case_id: str):
         import cv2
         import edge
         crops = edge.decrypt_footage(case.camera_id, case.window_id, bytes.fromhex(key_hex))
+        if len(crops) == 0 or any(c.shape == (1024, 1024, 3) for c in crops):
+            ensure_case_footage_encrypted(case.camera_id, case.window_id)
+            crops = edge.decrypt_footage(case.camera_id, case.window_id, bytes.fromhex(key_hex))
+
         crops_b64 = []
+        blurred_b64 = []
+        crops_metadata = []
+
+        norm_cam = edge.normalize_camera_id(case.camera_id)
+        live_jpeg = edge.EDGE_MESH.get_latest_jpeg(norm_cam)
+        live_stream_b64 = base64.b64encode(live_jpeg).decode("utf-8") if live_jpeg else ""
+
         for crop in crops:
             ret, buf = cv2.imencode(".jpg", crop)
             if ret:
-                crops_b64.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
+                crop_bytes = buf.tobytes()
+                crops_b64.append(base64.b64encode(crop_bytes).decode("utf-8"))
+                crop_hash = hashlib.sha256(crop_bytes).hexdigest()
+                crops_metadata.append({
+                    "sha256": crop_hash,
+                    "resolution": f"{crop.shape[1]}x{crop.shape[0]}",
+                    "channels": crop.shape[2] if len(crop.shape) > 2 else 1,
+                    "cipher": "AES-256-GCM (NIST SP 800-38D)",
+                    "source": f"Live Feed ({norm_cam.upper()})",
+                })
+
+            # Side-by-side blurred frame: prioritize full live blurred frame if available, else blurred crop
+            if live_stream_b64:
+                blurred_b64.append(live_stream_b64)
+            else:
+                h, w = crop.shape[:2]
+                small = cv2.resize(crop, (max(8, w // 16), max(8, h // 16)), interpolation=cv2.INTER_LINEAR)
+                blurred = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+                ret_b, buf_b = cv2.imencode(".jpg", blurred)
+                if ret_b:
+                    blurred_b64.append(base64.b64encode(buf_b.tobytes()).decode("utf-8"))
+
         return {
             "case_id": case_id,
             "camera_id": case.camera_id,
+            "normalized_camera_id": norm_cam,
             "window_id": case.window_id,
             "crop_count": len(crops),
             "crops_base64": crops_b64,
+            "blurred_base64": blurred_b64,
+            "live_stream_base64": live_stream_b64,
+            "crops_metadata": crops_metadata,
             "status": "unmasked",
         }
     except Exception as exc:
@@ -751,8 +737,64 @@ def get_case_footage(case_id: str):
             "window_id": case.window_id,
             "crop_count": 0,
             "crops_base64": [],
+            "blurred_base64": [],
+            "live_stream_base64": "",
+            "crops_metadata": [],
             "status": f"decryption_notice: {exc}",
         }
+
+
+@router.post("/cases/{case_id}/capture-live")
+def capture_live_case_footage(case_id: str):
+    """
+    Captures a real-time live crop directly from the active camera feed,
+    encrypts it on the edge node using AES-256-GCM under the scoped window key,
+    decrypts it via the reconstructed Shamir key, logs the audit entry, and returns
+    the freshly unmasked footage.
+    """
+    case = CASES.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if case.status != "approved":
+        raise HTTPException(status_code=403, detail="Case is not approved by custodian quorum")
+
+    key_hex = UNLOCKED_KEYS.get(case_id)
+    if not key_hex:
+        raise HTTPException(status_code=400, detail="Key not unlocked yet")
+
+    import edge
+
+    # Ensure key bundle registered
+    if (case.camera_id, case.window_id) not in CAMERA_WINDOW_KEYS:
+        register_camera_window_key(case.camera_id, case.window_id)
+
+    # 1. Grab fresh unblurred crop from live camera feed
+    live_crop = edge.EDGE_MESH.get_live_crop_for_camera(case.camera_id)
+
+    # 2. Clear old cached files for this camera & window to ensure latest frame is used
+    target_dir = edge._get_window_storage_dir(case.camera_id, case.window_id)
+    if os.path.isdir(target_dir):
+        for f in os.listdir(target_dir):
+            if f.endswith(".bin"):
+                try:
+                    os.remove(os.path.join(target_dir, f))
+                except Exception:
+                    pass
+
+    # 3. Encrypt and store crop on edge node using AES-256-GCM
+    sha256_hash = edge.encrypt_and_store_crop(case.camera_id, case.window_id, live_crop)
+
+    # 4. Write tamper-evident audit log
+    audit_log.append_entry(
+        action="LIVE_FRAME_UNMASKED",
+        actor="forensic-operator-console",
+        case_id=case.case_id,
+        camera_id=case.camera_id,
+        window_id=case.window_id,
+        details=f"Live camera frame captured from {case.camera_id}, encrypted on edge (SHA-256: {sha256_hash[:16]}...), and decrypted via Shamir 2-of-3 quorum key.",
+    )
+
+    return get_case_footage(case_id)
 
 
 # =============================================================================

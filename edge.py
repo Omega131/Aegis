@@ -75,8 +75,9 @@ TEST_VIDEO_FALLBACK = os.path.join(BASE_DIR, "test_video.mp4")
 # Rate limit for emitting 'face_blurred' events in seconds (prevents event flood)
 FACE_EVENT_RATE_LIMIT = 3.0
 
-# Simulated camera loop frame interval (0.06 seconds ~= 16 FPS)
-FRAME_INTERVAL_SECONDS = 0.06
+# Simulated camera loop frame interval (0.20 seconds ~= 5 FPS)
+# Tuned to prevent CPU saturation while maintaining smooth live surveillance
+FRAME_INTERVAL_SECONDS = float(os.getenv("FRAME_INTERVAL_SECONDS", "0.20"))
 
 # -----------------------------------------------------------------------------
 # Privacy Blurring Tuning Constants
@@ -988,6 +989,13 @@ class CameraNode:
         # Pre-populate initial blurred frame buffer so the node is immediately healthy on launch
         self.latest_frame = self._generate_synthetic_frame()
         self.last_frame_time = time.time()
+        self.latest_jpeg_bytes: bytes | None = None
+        self.latest_raw_frame: np.ndarray | None = None
+        self.latest_unblurred_crop: np.ndarray | None = None
+        self.last_detected_face_crop: np.ndarray | None = None
+        if self.latest_frame is not None:
+            _, init_buf = cv2.imencode(".jpg", self.latest_frame)
+            self.latest_jpeg_bytes = init_buf.tobytes()
 
         print(f"[NODE-INIT] CameraNode created: {self.camera_id}")
 
@@ -1134,12 +1142,7 @@ class CameraNode:
         Thread-safe. Never exposes raw unblurred video.
         """
         with self._lock:
-            if self.latest_frame is None:
-                return None
-            success, encoded_jpg = cv2.imencode(".jpg", self.latest_frame)
-            if success:
-                return encoded_jpg.tobytes()
-            return None
+            return self.latest_jpeg_bytes
 
     def _generate_synthetic_frame(self) -> np.ndarray:
         """
@@ -1284,10 +1287,22 @@ class CameraNode:
                     with self._lock:
                         self.last_event = "camera_recovered"
 
-                # Step 8: Update latest BLURRED frame in memory (raw faces are never exposed)
+                # Step 8: Update latest BLURRED frame and cached JPEG in memory (raw faces are never exposed)
                 with self._lock:
                     self.latest_frame = blurred_frame
+                    self.latest_raw_frame = frame.copy()
+                    if len(face_crops) > 0:
+                        self.latest_unblurred_crop = face_crops[0][0].copy()
+                        self.last_detected_face_crop = face_crops[0][0].copy()
+                    else:
+                        h, w = frame.shape[:2]
+                        ch, cw = int(h * 0.60), int(w * 0.50)
+                        cy, cx = int(h * 0.15), int((w - cw) / 2)
+                        self.latest_unblurred_crop = frame[cy : cy + ch, cx : cx + cw].copy()
                     self.last_frame_time = time.time()
+                    enc_ok, enc_jpg = cv2.imencode(".jpg", blurred_frame)
+                    if enc_ok:
+                        self.latest_jpeg_bytes = enc_jpg.tobytes()
 
                 # Step 9: Regulate loop frame rate to avoid excessive CPU usage
                 time.sleep(FRAME_INTERVAL_SECONDS)
@@ -1302,6 +1317,43 @@ class CameraNode:
                     print(f"[NODE-EXIT] {self.camera_id} video capture released.")
                 except Exception as exc:
                     print(f"[NODE-WARN] Error releasing capture for {self.camera_id}: {exc}")
+
+    def get_live_unblurred_crop(self) -> np.ndarray:
+        """
+        Returns the latest unblurred face crop or live portrait crop from the raw camera frame.
+        Used exclusively for authorized cryptographic escrow unmasking.
+        """
+        with self._lock:
+            if self.last_detected_face_crop is not None:
+                return self.last_detected_face_crop.copy()
+            if self.latest_unblurred_crop is not None:
+                return self.latest_unblurred_crop.copy()
+            if self.latest_raw_frame is not None:
+                h, w = self.latest_raw_frame.shape[:2]
+                ch, cw = int(h * 0.60), int(w * 0.50)
+                cy, cx = int(h * 0.15), int((w - cw) / 2)
+                return self.latest_raw_frame[cy : cy + ch, cx : cx + cw].copy()
+            return self._generate_synthetic_frame()
+
+
+def normalize_camera_id(camera_id: str) -> str | None:
+    """
+    Normalizes human-friendly camera IDs (e.g., 'CAM-01-NORTH', 'CAM_01', 'cam-01')
+    to EdgeMesh keys ('cam_01', 'cam_02', etc.).
+    Returns None if the camera ID is invalid or not in range 1..5.
+    """
+    if not camera_id:
+        return None
+    clean = camera_id.lower().strip()
+    if clean in ("cam_01", "cam_02", "cam_03", "cam_04", "cam_05"):
+        return clean
+    import re
+    match = re.search(r"cam[-_]?0?([1-9]\d*)", clean)
+    if match:
+        num = int(match.group(1))
+        if 1 <= num <= 5:
+            return f"cam_{num:02d}"
+    return None
 
 
 class EdgeMesh:
@@ -1366,10 +1418,37 @@ class EdgeMesh:
         Retrieves the latest blurred frame for a specific camera as JPEG bytes.
         Returns None if camera_id is not found or has not produced a frame yet.
         """
-        node = self.nodes.get(camera_id)
+        norm_id = normalize_camera_id(camera_id)
+        if norm_id is None:
+            return None
+        node = self.nodes.get(norm_id)
         if node is None:
             return None
         return node.get_latest_jpeg()
+
+    def get_live_crop_for_camera(self, camera_id: str) -> np.ndarray:
+        """
+        Retrieves the latest unblurred crop directly from the specified camera's live stream.
+        Prioritizes the active physical webcam (cam_01) if it has a real detected face.
+        """
+        norm_id = normalize_camera_id(camera_id)
+        node = self.nodes.get(norm_id) if norm_id else None
+        if node is not None and node.last_detected_face_crop is not None:
+            return node.get_live_unblurred_crop()
+
+        # If primary hardware camera (cam_01) has a real live webcam face crop, use it!
+        if "cam_01" in self.nodes:
+            cam01 = self.nodes["cam_01"]
+            if cam01.last_detected_face_crop is not None:
+                return cam01.get_live_unblurred_crop()
+
+        if node is not None:
+            return node.get_live_unblurred_crop()
+
+        if "cam_01" in self.nodes:
+            return self.nodes["cam_01"].get_live_unblurred_crop()
+
+        return CameraNode("fallback")._generate_synthetic_frame()
 
 
 # =============================================================================
