@@ -83,11 +83,11 @@ export const CamerasPage: React.FC = () => {
 
     void loadInitialData()
 
-    // Poll camera node status every 1.5 seconds
-    const camerasTimer = setInterval(fetchCameras, 1500)
+    // Poll camera node status every 2.5 seconds for smooth UI responsiveness
+    const camerasTimer = setInterval(fetchCameras, 2500)
 
-    // Poll event feed every 2.0 seconds as requested
-    const eventsTimer = setInterval(fetchEvents, 2000)
+    // Poll event feed every 2.5 seconds
+    const eventsTimer = setInterval(fetchEvents, 2500)
 
     return () => {
       isMounted = false
