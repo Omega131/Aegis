@@ -131,7 +131,7 @@ export const CameraTile: React.FC<CameraTileProps> = ({
 
         {/* Viewport Telemetry HUD */}
         <div className="viewport-hud">
-          {camera.status === 'running' ? '16 FPS // YUNET' : camera.status.toUpperCase()}
+          {camera.status === 'running' ? 'LIVE // YUNET' : camera.status.toUpperCase()}
         </div>
       </div>
 

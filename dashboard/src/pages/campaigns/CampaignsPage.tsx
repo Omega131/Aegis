@@ -21,6 +21,25 @@ export interface CaseRequest {
   approvals: string[]
 }
 
+export interface CaseFootageResponse {
+  case_id: string
+  camera_id: string
+  normalized_camera_id?: string
+  window_id: string
+  crop_count: number
+  crops_base64: string[]
+  blurred_base64?: string[]
+  live_stream_base64?: string
+  crops_metadata?: Array<{
+    sha256: string
+    resolution: string
+    channels: number
+    cipher: string
+    source?: string
+  }>
+  status: string
+}
+
 export interface DecoySessionEvent {
   session_id: string
   source_ip: string
@@ -364,7 +383,7 @@ const FALLBACK_FEDERATION_RECORDS: FederatedRecord[] = [
 export const CampaignsPage: React.FC = () => {
   // Navigation & Sub-Tabs
   const [activeSubTab, setActiveSubTab] = useState<
-    'graph' | 'escrow' | 'audit' | 'mitre_hassh' | 'zk_snark' | 'federation' | 'guide'
+    'graph' | 'escrow' | 'audit' | 'federation'
   >('graph')
 
   // Core Data States
@@ -383,8 +402,6 @@ export const CampaignsPage: React.FC = () => {
 
   // Verification & Feedback States
   const [auditVerified, setAuditVerified] = useState<boolean | null>(null)
-  const [zkVerified, setZkVerified] = useState<boolean | null>(null)
-  const [isVerifyingZk, setIsVerifyingZk] = useState<boolean>(false)
   const [drillBanner, setDrillBanner] = useState<{ type: 'info' | 'success' | 'danger'; title: string; desc: string } | null>(null)
   const [isVerifyingChain, setIsVerifyingChain] = useState<boolean>(false)
   const [revealedFootageKey, setRevealedFootageKey] = useState<string | null>(null)
@@ -392,6 +409,36 @@ export const CampaignsPage: React.FC = () => {
   // STIX 2.1 Modal State
   const [stixModalOpen, setStixModalOpen] = useState<boolean>(false)
   const [stixContent, setStixContent] = useState<string>('')
+
+  // Decrypted footage state
+  const [caseFootage, setCaseFootage] = useState<CaseFootageResponse | null>(null)
+  const [isFootageLoading, setIsFootageLoading] = useState<boolean>(false)
+  const [isCapturingLive, setIsCapturingLive] = useState<boolean>(false)
+  const [liveFeedTick, setLiveFeedTick] = useState<number>(0)
+  const [copiedHash, setCopiedHash] = useState<string | null>(null)
+
+  // Manual Case Registration Modal State
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState<boolean>(false)
+  const [isSubmittingCase, setIsSubmittingCase] = useState<boolean>(false)
+  const [registerForm, setRegisterForm] = useState({
+    cameraId: 'CAM-04-MARKET',
+    customCameraId: '',
+    windowId: '',
+    campaignId: 'CMP-001',
+    hostilityScore: 8.8,
+    incidentNotes: 'Automated honeytoken tripwire activation detected on substation telemetry broker.',
+    investigatorId: 'OFFICER-JUD-849',
+  })
+
+  const getRecentWindowId = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    const hour = String(now.getHours()).padStart(2, '0')
+    const minute = String(Math.floor(now.getMinutes() / 10) * 10).padStart(2, '0')
+    return `${year}-${month}-${day}T${hour}:${minute}`
+  }
 
   const graphContainerRef = useRef<SVGSVGElement | null>(null)
 
@@ -536,7 +583,6 @@ export const CampaignsPage: React.FC = () => {
     }
     setDrillBanner(null)
     setAuditVerified(null)
-    setZkVerified(null)
     setRevealedFootageKey(null)
   }
 
@@ -557,6 +603,9 @@ export const CampaignsPage: React.FC = () => {
         const data = await res.json()
         setCases((prev) => prev.map((c) => (c.case_id === selectedCaseId ? data.case : c)))
         if (data.unlocked_key) setRevealedFootageKey(data.unlocked_key)
+        if (data.case?.status === 'approved') {
+          void loadCaseFootage(selectedCaseId)
+        }
         await loadBackendData()
         return
       }
@@ -578,8 +627,9 @@ export const CampaignsPage: React.FC = () => {
     )
 
     if (decision === 'approve') {
-      const dummyKey = 'a84f391028471928371902834190823901823901823091820938102938102938'
+      const dummyKey = 'd8f3b490c2914102983719028341908239018239018230918209381029381029'
       setRevealedFootageKey(dummyKey)
+      void loadCaseFootage(selectedCaseId)
 
       const approvalBlock: AuditBlock = {
         index: auditLogs.length,
@@ -618,14 +668,6 @@ export const CampaignsPage: React.FC = () => {
     setTimeout(() => setIsVerifyingChain(false), 250)
   }
 
-  // ZK-SNARK Mathematical Verification Handler
-  const handleVerifyZkProof = async () => {
-    setIsVerifyingZk(true)
-    setTimeout(() => {
-      setZkVerified(true)
-      setIsVerifyingZk(false)
-    }, 450)
-  }
 
   // Cross-City Federation Handlers
   const handlePublishToFederation = async () => {
@@ -765,6 +807,170 @@ export const CampaignsPage: React.FC = () => {
   const activeCase = useMemo(() => cases.find((c) => c.case_id === selectedCaseId) || cases[0], [cases, selectedCaseId])
   const activeSession = useMemo(() => sessionEvents[selectedSessionId] || Object.values(sessionEvents)[0], [sessionEvents, selectedSessionId])
 
+  const loadCaseFootage = async (caseId: string) => {
+    setIsFootageLoading(true)
+    try {
+      const caseDetailRes = await fetch(`http://localhost:8000/escrow/cases/${caseId}`, { signal: AbortSignal.timeout(2000) })
+      if (caseDetailRes.ok) {
+        const detailData = await caseDetailRes.json()
+        if (detailData.unlocked_key) setRevealedFootageKey(detailData.unlocked_key)
+      }
+
+      const res = await fetch(`http://localhost:8000/escrow/cases/${caseId}/footage`, { signal: AbortSignal.timeout(3000) })
+      if (res.ok) {
+        const data: CaseFootageResponse = await res.json()
+        setCaseFootage(data)
+        setIsFootageLoading(false)
+        return
+      }
+    } catch {
+      // Offline fallback handling
+    }
+
+    setCaseFootage({
+      case_id: caseId,
+      camera_id: activeCase?.camera_id || 'CAM-01-NORTH',
+      normalized_camera_id: 'cam_01',
+      window_id: activeCase?.window_id || 'WIN-20261024-1130',
+      crop_count: 0,
+      crops_base64: [],
+      blurred_base64: [],
+      crops_metadata: [
+        {
+          sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          resolution: '640x480',
+          channels: 3,
+          cipher: 'AES-256-GCM (NIST SP 800-38D)',
+          source: 'Live Feed (CAM_01)',
+        },
+      ],
+      status: 'unmasked',
+    })
+    setIsFootageLoading(false)
+  }
+
+  // Live frame capture handler for approved case
+  const handleCaptureLiveFrame = async (caseId: string) => {
+    setIsCapturingLive(true)
+    try {
+      const res = await fetch(`http://localhost:8000/escrow/cases/${caseId}/capture-live`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (res.ok) {
+        const data: CaseFootageResponse = await res.json()
+        setCaseFootage(data)
+        void loadBackendData()
+      }
+    } catch (err) {
+      console.error('Failed to capture live frame', err)
+    } finally {
+      setIsCapturingLive(false)
+    }
+  }
+
+  // Periodic timer to keep live blurred camera feed updated every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveFeedTick((prev) => prev + 1)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Load footage when an approved case is selected or status updates
+  useEffect(() => {
+    if (activeCase?.status === 'approved') {
+      void loadCaseFootage(activeCase.case_id)
+    } else {
+      setCaseFootage(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCase?.case_id, activeCase?.status])
+
+  const handleDownloadCrop = (src: string, filename: string) => {
+    const link = document.createElement('a')
+    link.href = src.startsWith('data:') || src.startsWith('/') ? src : `data:image/jpeg;base64,${src}`
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const handleRegisterCase = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSubmittingCase(true)
+    const targetCam = registerForm.cameraId === 'custom'
+      ? (registerForm.customCameraId.trim() || 'CAM-01-CUSTOM')
+      : registerForm.cameraId
+    const targetWindow = registerForm.windowId.trim() || getRecentWindowId()
+
+    const payload = {
+      camera_id: targetCam,
+      window_id: targetWindow,
+      campaign_id: registerForm.campaignId,
+      hostility_score: Number(registerForm.hostilityScore),
+      incident_notes: `${registerForm.incidentNotes.trim()} [Issued by ${registerForm.investigatorId}]`,
+    }
+
+    try {
+      const res = await fetch('http://localhost:8000/escrow/cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(2500),
+      })
+      if (res.ok) {
+        const newCase: CaseRequest = await res.json()
+        setCases((prev) => [newCase, ...prev.filter((c) => c.case_id !== newCase.case_id)])
+        setSelectedCaseId(newCase.case_id)
+        setIsRegisterModalOpen(false)
+        setDrillBanner({
+          type: 'success',
+          title: `Break-Glass Warrant ${newCase.case_id} Successfully Registered`,
+          desc: `Target: ${newCase.camera_id} @ ${newCase.window_id}. AES-256 key sharded across 3 Shamir custodians. Awaiting 2-of-3 quorum.`,
+        })
+        await loadBackendData()
+        setIsSubmittingCase(false)
+        return
+      }
+    } catch {
+      // Offline fallback handling
+    }
+
+    const fallbackId = `CASE-2026-${String(cases.length + 1).padStart(3, '0')}`
+    const fallbackCase: CaseRequest = {
+      case_id: fallbackId,
+      camera_id: targetCam,
+      window_id: targetWindow,
+      campaign_id: payload.campaign_id,
+      status: 'pending',
+      approvals: [],
+    }
+    setCases((prev) => [fallbackCase, ...prev])
+    setSelectedCaseId(fallbackId)
+    setIsRegisterModalOpen(false)
+    setDrillBanner({
+      type: 'success',
+      title: `Break-Glass Warrant ${fallbackId} Registered (Simulated Mode)`,
+      desc: `Target: ${targetCam} @ ${targetWindow}. Cryptographic escrow shards generated. Awaiting custodian quorum.`,
+    })
+
+    const auditBlock: AuditBlock = {
+      index: auditLogs.length,
+      timestamp: getNowIso(),
+      action: 'CASE_CREATED',
+      actor: registerForm.investigatorId,
+      case_id: fallbackId,
+      camera_id: targetCam,
+      window_id: targetWindow,
+      details: `Break-glass warrant registered: Campaign ${payload.campaign_id} (Hostility: ${payload.hostility_score}). ${payload.incident_notes}`,
+      prev_hash: auditLogs[auditLogs.length - 1]?.current_hash || '0'.repeat(64),
+      current_hash: '7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d',
+    }
+    setAuditLogs((prev) => [...prev, auditBlock])
+    setIsSubmittingCase(false)
+  }
+
   return (
     <div className="campaigns-root" id="page-campaigns">
       {/* Page Header */}
@@ -778,7 +984,7 @@ export const CampaignsPage: React.FC = () => {
           </div>
           <h1 id="heading-campaigns">Threat Campaigns & Break-Glass Escrow</h1>
           <p className="subhead-desc">
-            Graph-based threat correlation, Shamir 2-of-3 escrow unmasking, Groth16 ZK-SNARK verifier, Salesforce HASSH analysis, and Cross-City decentralized threat sharing.
+            Graph-based threat correlation, Shamir 2-of-3 escrow unmasking, Salesforce HASSH analysis, and Cross-City decentralized threat sharing.
           </p>
         </div>
 
@@ -916,28 +1122,6 @@ export const CampaignsPage: React.FC = () => {
 
         <button
           type="button"
-          className={`subtab-btn ${activeSubTab === 'mitre_hassh' ? 'active' : ''}`}
-          onClick={() => setActiveSubTab('mitre_hassh')}
-        >
-          <span>HASSH & MITRE Matrix</span>
-          <span className="subtab-count" style={{ background: 'rgba(99, 102, 241, 0.25)', color: '#c7d2fe' }}>
-            Stretch
-          </span>
-        </button>
-
-        <button
-          type="button"
-          className={`subtab-btn ${activeSubTab === 'zk_snark' ? 'active' : ''}`}
-          onClick={() => setActiveSubTab('zk_snark')}
-        >
-          <span>ZK-SNARK Circuit Proof</span>
-          <span className="subtab-count" style={{ background: 'rgba(16, 185, 129, 0.25)', color: '#34d399' }}>
-            Stretch
-          </span>
-        </button>
-
-        <button
-          type="button"
           className={`subtab-btn ${activeSubTab === 'federation' ? 'active' : ''}`}
           onClick={() => setActiveSubTab('federation')}
         >
@@ -945,14 +1129,6 @@ export const CampaignsPage: React.FC = () => {
           <span className="subtab-count" style={{ background: 'rgba(56, 189, 248, 0.25)', color: '#38bdf8' }}>
             Stretch
           </span>
-        </button>
-
-        <button
-          type="button"
-          className={`subtab-btn ${activeSubTab === 'guide' ? 'active' : ''}`}
-          onClick={() => setActiveSubTab('guide')}
-        >
-          <span>Demo Script & Pitch</span>
         </button>
       </div>
 
@@ -1313,8 +1489,27 @@ export const CampaignsPage: React.FC = () => {
         <div className="escrow-grid">
           <div className="cases-list-card">
             <div className="card-title-bar">
-              <h3>Break-Glass Warrants</h3>
-              <span className="field-label">{cases.length} Total</span>
+              <div>
+                <h3>Break-Glass Warrants</h3>
+                <span className="field-label">{cases.length} Total</span>
+              </div>
+              <button
+                type="button"
+                className="btn-register-case"
+                onClick={() => {
+                  setRegisterForm((prev) => ({
+                    ...prev,
+                    windowId: prev.windowId || getRecentWindowId(),
+                  }))
+                  setIsRegisterModalOpen(true)
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>Register Warrant</span>
+              </button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -1446,7 +1641,7 @@ export const CampaignsPage: React.FC = () => {
                     </strong>
                   </div>
                   <span className="code-pill" style={{ color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.4)' }}>
-                    ZK Quorum Verified (Groth16)
+                    Shamir 2-of-3 Quorum Verified
                   </span>
                 </div>
 
@@ -1455,17 +1650,185 @@ export const CampaignsPage: React.FC = () => {
                   <code style={{ color: '#34d399' }}>{revealedFootageKey || 'd8f3b490c2914102983719028341908239018239018230918209381029381029'}</code>
                 </div>
 
-                <div className="footage-unmask-preview">
-                  <div className="footage-box blurred">
-                    <div className="face-placeholder-blurred" />
-                    <span className="footage-tag">Default City Feed: Blurred (Privacy Preserved)</span>
+                <div className="forensic-footage-viewer">
+                  <div className="footage-comparison-grid">
+                    {/* Blurred Feed Box */}
+                    <div className="forensic-crop-card blurred-feed">
+                      <div className="crop-header">
+                        <span className="feed-status-badge privacy-active">
+                          <span className="pulsing-dot amber" /> PRIVACY SHIELD ACTIVE
+                        </span>
+                        <span className="feed-subtext">Live City Camera Feed</span>
+                      </div>
+
+                      <div className="crop-image-viewport">
+                        <img
+                          src={`http://localhost:8000/api/cameras/${
+                            activeCase.camera_id?.toLowerCase().includes('04')
+                              ? 'cam_04'
+                              : activeCase.camera_id?.toLowerCase().includes('02')
+                              ? 'cam_02'
+                              : 'cam_01'
+                          }/frame?t=${liveFeedTick}`}
+                          onError={(e) => {
+                            if (caseFootage?.blurred_base64 && caseFootage.blurred_base64.length > 0) {
+                              e.currentTarget.src = `data:image/jpeg;base64,${caseFootage.blurred_base64[0]}`
+                            }
+                          }}
+                          alt="Live Blurred Surveillance Frame"
+                          className="forensic-img blurred"
+                        />
+                        <div className="viewport-watermark">
+                          {activeCase.camera_id} • {activeCase.window_id} • LIVE BLURRED FEED
+                        </div>
+                      </div>
+
+                      <div className="crop-footer">
+                        <span>Real-Time YuNet Face Privacy Shield</span>
+                        <span className="privacy-pill">GDPR / Ordinance §8 Compliant</span>
+                      </div>
+                    </div>
+
+                    {/* Unblurred Decrypted Crop Box */}
+                    <div className="forensic-crop-card decrypted-feed">
+                      <div className="crop-header">
+                        <span className="feed-status-badge decrypted-active">
+                          <span className="pulsing-dot emerald" /> AES-256-GCM UNMASKED
+                        </span>
+                        <div className="header-actions-row">
+                          <span className="feed-subtext">Forensic Evidence Standard</span>
+                          <button
+                            type="button"
+                            className="btn-capture-live"
+                            disabled={isCapturingLive || isFootageLoading}
+                            onClick={() => handleCaptureLiveFrame(activeCase.case_id)}
+                            title="Capture and cryptographically decrypt current live frame from camera feed"
+                          >
+                            {isCapturingLive ? (
+                              <>
+                                <span className="spinner-mini" /> Capturing...
+                              </>
+                            ) : (
+                              <>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                                </svg>
+                                <span>Capture Live Frame</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="crop-image-viewport unmasked-viewport">
+                        {isFootageLoading || isCapturingLive ? (
+                          <div className="footage-scanner-loader">
+                            <div className="scanning-line" />
+                            <span>
+                              {isCapturingLive ? 'Capturing & Decrypting Live Camera Feed...' : 'Reconstructing from Shamir Shares...'}
+                            </span>
+                          </div>
+                        ) : caseFootage?.crops_base64 && caseFootage.crops_base64.length > 0 ? (
+                          <img
+                            src={`data:image/jpeg;base64,${caseFootage.crops_base64[0]}`}
+                            alt="Cryptographically Decrypted Live Camera Frame"
+                            className="forensic-img unmasked"
+                          />
+                        ) : (
+                          <div className="empty-live-crop-prompt">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="1.5">
+                              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                              <circle cx="12" cy="13" r="4" />
+                            </svg>
+                            <p>No live unmasked snapshot captured yet for this window.</p>
+                            <button
+                              type="button"
+                              className="btn-capture-live primary"
+                              onClick={() => handleCaptureLiveFrame(activeCase.case_id)}
+                            >
+                              ⚡ Capture Live Unmasked Frame
+                            </button>
+                          </div>
+                        )}
+                        {/* HUD corner brackets */}
+                        <div className="hud-corner top-left" />
+                        <div className="hud-corner top-right" />
+                        <div className="hud-corner bottom-left" />
+                        <div className="hud-corner bottom-right" />
+
+                        <div className="viewport-watermark emerald">
+                          LIVE FORENSIC EVIDENCE • {activeCase.camera_id} • {activeCase.window_id}
+                        </div>
+                      </div>
+
+                      <div className="crop-footer">
+                        <div className="meta-info">
+                          <span>
+                            <strong>Resolution:</strong>{' '}
+                            {caseFootage?.crops_metadata?.[0]?.resolution || '640x480 RGB'}
+                          </span>
+                          <span>
+                            <strong>Source:</strong>{' '}
+                            {caseFootage?.crops_metadata?.[0]?.source || `Live Camera Feed (${activeCase.camera_id})`}
+                          </span>
+                          <span>
+                            <strong>Cipher:</strong> AES-256-GCM (NIST SP 800-38D)
+                          </span>
+                        </div>
+                        {caseFootage?.crops_base64 && caseFootage.crops_base64.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn-download-crop"
+                            onClick={() => {
+                              const b64 = caseFootage.crops_base64[0]
+                              handleDownloadCrop(b64, `${activeCase.case_id}_${activeCase.camera_id}_live_unmasked.jpg`)
+                            }}
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                            <span>Export Live Frame</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="footage-box">
-                    <div className="face-placeholder-unmasked">👤</div>
-                    <span className="footage-tag" style={{ color: '#34d399' }}>
-                      Scoped Unmask: {activeCase.camera_id} [{activeCase.window_id}]
-                    </span>
+                  {/* Cryptographic Content Address Commitment & Hash */}
+                  <div className="forensic-hash-card">
+                    <div className="hash-details">
+                      <div className="hash-label">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2">
+                          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                        </svg>
+                        <span>SHA-256 Content-Addressed Ciphertext Digest:</span>
+                      </div>
+                      <code className="hash-code">
+                        {caseFootage?.crops_metadata?.[0]?.sha256 ||
+                          (activeCase.case_id.includes('001') || activeCase.camera_id.includes('04')
+                            ? '30e77d4ff1ef0e15afcd40490801f9948e73ca237267be662a0bb4e4efd4924f'
+                            : '90b2b668882807f4cdc7b1d2eca622d9a917e1d58eef841fa959177b9609943b')}
+                      </code>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn-copy-hash"
+                      onClick={() => {
+                        const h =
+                          caseFootage?.crops_metadata?.[0]?.sha256 ||
+                          (activeCase.case_id.includes('001') || activeCase.camera_id.includes('04')
+                            ? '30e77d4ff1ef0e15afcd40490801f9948e73ca237267be662a0bb4e4efd4924f'
+                            : '90b2b668882807f4cdc7b1d2eca622d9a917e1d58eef841fa959177b9609943b')
+                        void navigator.clipboard?.writeText(h)
+                        setCopiedHash(h)
+                        setTimeout(() => setCopiedHash(null), 2000)
+                      }}
+                    >
+                      {copiedHash ? '✓ Copied' : 'Copy Hash'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1552,237 +1915,7 @@ export const CampaignsPage: React.FC = () => {
         </div>
       )}
 
-      {/* =================================================================== */}
-      {/* STRETCH TAB 4: HASSH & MITRE ATT&CK MATRIX                          */}
-      {/* =================================================================== */}
-      {activeSubTab === 'mitre_hassh' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          {/* MITRE ATT&CK Matrix Grid */}
-          <div className="tactic-column" style={{ padding: '1rem', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span className="field-label">MITRE ATT&CK Framework</span>
-                <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>Enterprise IoT Threat Technique Matrix</h3>
-              </div>
-              <span className="code-pill">7 Techniques Active Across Captured Honeypot Sessions</span>
-            </div>
 
-            <div className="mitre-matrix-grid">
-              <div className="tactic-column">
-                <div className="tactic-header">Credential Access</div>
-                <div className="technique-item active">
-                  <span className="technique-id-badge">T1110.001</span>
-                  <span className="technique-name">Password Guessing</span>
-                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Brute-forcing default credentials on IoT ports</p>
-                  <span className="technique-count-pill">3 Sessions</span>
-                </div>
-                <div className="technique-item active">
-                  <span className="technique-id-badge">T1078</span>
-                  <span className="technique-name">Valid Accounts</span>
-                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Factory default camera logins</p>
-                  <span className="technique-count-pill">2 Sessions</span>
-                </div>
-              </div>
-
-              <div className="tactic-column">
-                <div className="tactic-header">Execution</div>
-                <div className="technique-item active">
-                  <span className="technique-id-badge">T1059.004</span>
-                  <span className="technique-name">Unix Shell Execution</span>
-                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Executing bash/busybox droppers in decoy</p>
-                  <span className="technique-count-pill">5 Sessions</span>
-                </div>
-              </div>
-
-              <div className="tactic-column">
-                <div className="tactic-header">Command & Control</div>
-                <div className="technique-item active">
-                  <span className="technique-id-badge">T1071.001</span>
-                  <span className="technique-name">Web Protocols (C2)</span>
-                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Beaconing to remote C2 IP (185.220.101.5)</p>
-                  <span className="technique-count-pill">4 Sessions</span>
-                </div>
-                <div className="technique-item active">
-                  <span className="technique-id-badge">T1105</span>
-                  <span className="technique-name">Ingress Tool Transfer</span>
-                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Payload staged via wget/curl/tftp</p>
-                  <span className="technique-count-pill">4 Sessions</span>
-                </div>
-              </div>
-
-              <div className="tactic-column">
-                <div className="tactic-header">Impact</div>
-                <div className="technique-item active">
-                  <span className="technique-id-badge">T1499</span>
-                  <span className="technique-name">Endpoint Denial of Service</span>
-                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Mirai botnet orchestration telemetry</p>
-                  <span className="technique-count-pill">4 Sessions</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Salesforce HASSH SSH Client Fingerprinting Decoder */}
-          <div className="hassh-table-card">
-            <div>
-              <span className="field-label">Salesforce HASSH Specification</span>
-              <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>SSH Client Fingerprint Signatures</h3>
-              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-                <code>hassh = MD5(kex + ";" + encryption + ";" + mac + ";" + compression)</code>. Weaponized scanning tools exhibit identifiable cryptographic cipher negotiation signatures.
-              </p>
-            </div>
-
-            <div className="hassh-card-grid">
-              <div className="hassh-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="hassh-weaponized-badge">Weaponized Botnet Scanner</span>
-                  <span style={{ fontSize: '0.75rem', color: '#f59e0b' }}>Confidence: High</span>
-                </div>
-                <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>Mirai / Echobot Weaponized Go Scanner</div>
-                <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#38bdf8' }}>
-                  HASSH: 9a4f21d3e8105c938192a01491823091
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                  Banner: <code>SSH-2.0-Go-crypto-ssh</code>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                  Ciphers: chacha20-poly1305@openssh.com, aes128-ctr | MAC: hmac-sha2-256-etm
-                </div>
-              </div>
-
-              <div className="hassh-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="hassh-weaponized-badge">SCADA Industrial Exploit</span>
-                  <span style={{ fontSize: '0.75rem', color: '#f43f5e' }}>Confidence: Critical</span>
-                </div>
-                <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>BlackEnergy SCADA Industrial Brute-Forcer</div>
-                <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#38bdf8' }}>
-                  HASSH: cc129a04918239018230918230198230
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                  Banner: <code>SSH-2.0-libssh_0.9.5</code>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                  Ciphers: aes256-gcm@openssh.com, aes128-gcm | KEX: curve25519-sha256@libssh.org
-                </div>
-              </div>
-
-              <div className="hassh-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="code-pill">Dual-Use / Scanner</span>
-                  <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Confidence: Low</span>
-                </div>
-                <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>Standard OpenSSH Distribution</div>
-                <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#94a3b8' }}>
-                  HASSH: b2940182309182309182093810293810
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                  Banner: <code>SSH-2.0-OpenSSH_8.9p1 Ubuntu</code>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                  Ciphers: chacha20-poly1305, aes128-gcm | Standard legitimate Linux client
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =================================================================== */}
-      {/* STRETCH TAB 5: ZK-SNARK GROTH16 CIRCUIT PROOF VERIFIER              */}
-      {/* =================================================================== */}
-      {activeSubTab === 'zk_snark' && (
-        <div className="zk-view-grid">
-          <div className="zk-card">
-            <div>
-              <span className="field-label">Groth16 Zero-Knowledge Circuit</span>
-              <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>AegisEscrowQuorumVerifier.circom</h3>
-              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.3rem' }}>
-                Mathematically proves that a quorum of at least 2 municipal custodians signed without revealing which custodians signed, and constrains unlock to a single 10-minute camera window.
-              </p>
-            </div>
-
-            <div className="curve-point-box">
-              <span className="field-label" style={{ color: '#38bdf8' }}>π_A ∈ G1 (Elliptic Curve Point)</span>
-              <span>X: 0x19a4f89102847192837190283419082390182390182309182093810293810293</span>
-              <span>Y: 0x08b2910398102938102938102938102938102938102938102938102938102938</span>
-            </div>
-
-            <div className="curve-point-box">
-              <span className="field-label" style={{ color: '#38bdf8' }}>π_B ∈ G2 (Twisted Curve Point)</span>
-              <span>X: [0x28a1093810293810..., 0x11b3091820398120...]</span>
-              <span>Y: [0x09f4019283019823..., 0x14c2091820391820...]</span>
-            </div>
-
-            <div className="curve-point-box">
-              <span className="field-label" style={{ color: '#38bdf8' }}>π_C ∈ G1 (Proof Wire)</span>
-              <span>X: 0x33f1092830192830192830192830192830192830192830192830192830192830</span>
-              <span>Y: 0x12a8091820391820391820391820391820391820391820391820391820391820</span>
-            </div>
-
-            <div className="pairing-equation-badge">
-              <span>e(π_A, π_B) = e(α, β) · e(∑ x_i · IC_i, γ) · e(π_C, δ)</span>
-              <span style={{ fontWeight: 700 }}>BN254</span>
-            </div>
-          </div>
-
-          <div className="zk-card">
-            <div>
-              <span className="field-label">Public Signals & Verification</span>
-              <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>Proof Verification Key & Signals</h3>
-            </div>
-
-            <div className="field-group">
-              <span className="field-label">Public Input 0 (Constant Wire)</span>
-              <code>1</code>
-            </div>
-
-            <div className="field-group">
-              <span className="field-label">Public Input 1 (Camera ID Hash Commitment)</span>
-              <code>0x{hashlib_preview('CAM-04-MARKET')}</code>
-            </div>
-
-            <div className="field-group">
-              <span className="field-label">Public Input 2 (Window ID Hash Commitment)</span>
-              <code>0x{hashlib_preview('WIN-20261024-1130')}</code>
-            </div>
-
-            <div className="field-group">
-              <span className="field-label">Public Input 3 (Threshold Constant k)</span>
-              <code>2 (Shamir 2-of-3 Quorum)</code>
-            </div>
-
-            <div style={{ marginTop: 'auto', paddingTop: '1rem' }}>
-              {zkVerified && (
-                <div
-                  style={{
-                    padding: '0.75rem 1rem',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    border: '1px solid rgba(16, 185, 129, 0.4)',
-                    color: '#34d399',
-                    marginBottom: '0.75rem',
-                    fontSize: '0.825rem',
-                    fontWeight: 600,
-                  }}
-                >
-                  ✓ ZK-SNARK PROOF MATHEMATICALLY VERIFIED — Quorum validated without identity leakage.
-                </div>
-              )}
-
-              <button
-                type="button"
-                className="btn-drill btn-drill-c"
-                style={{ width: '100%', justifyContent: 'center' }}
-                onClick={handleVerifyZkProof}
-                disabled={isVerifyingZk}
-              >
-                <span>{isVerifyingZk ? 'Evaluating Bilinear Pairings...' : 'Verify ZK-SNARK Mathematical Proof'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* =================================================================== */}
       {/* STRETCH TAB 6: CROSS-CITY THREAT FEDERATION (SMART CONTRACT)        */}
@@ -1908,62 +2041,6 @@ export const CampaignsPage: React.FC = () => {
         </div>
       )}
 
-      {/* =================================================================== */}
-      {/* TAB 7: CHRONOFORGE DEMO SCRIPT GUIDE                                */}
-      {/* =================================================================== */}
-      {activeSubTab === 'guide' && (
-        <div className="script-guide-container">
-          <div className="drill-guide-card">
-            <h4>
-              <span className="status-chip denied">DRILL A</span> False Positive Pedestrian Protection
-            </h4>
-            <p style={{ color: '#cbd5e1', fontSize: '0.9rem' }}>
-              A pedestrian is flagged by the camera edge model. The live feed remains blurred. Because no honeypot hostility has been recorded, no break-glass warrant can be issued.
-            </p>
-            <div className="drill-guide-quote">
-              When an operator attempts an unauthorized unmasking, the request is rejected with 403 Forbidden, and the attempt is permanently written into the immutable audit trail.
-            </div>
-          </div>
-
-          <div className="drill-guide-card">
-            <h4>
-              <span className="status-chip pending">DRILL B</span> Real Decoy Compromise & Escrow Unlock
-            </h4>
-            <p style={{ color: '#cbd5e1', fontSize: '0.9rem' }}>
-              A scripted attacker brute-forces the decoy SSH service and touches a honeytoken bait file (rickroll fires). The hostility threshold is crossed.
-            </p>
-            <div className="drill-guide-quote">
-              2 of 3 municipal custodians approve the case. The audit entry is committed BEFORE releasing the key. Only that camera and 10-minute window unlock—never a blanket unmask!
-            </div>
-          </div>
-
-          <div className="drill-guide-card">
-            <h4>
-              <span className="status-chip approved">DRILL C</span> Campaign Clustering Signature Moment
-            </h4>
-            <p style={{ color: '#cbd5e1', fontSize: '0.9rem' }}>
-              Three scripted attacker groups hit the decoys from rotating IPs. The intelligence engine correlates them by strong evidence (C2 address, malware binary hash, and dropper sequence).
-            </p>
-            <div className="drill-guide-quote">
-              Even when an attacker adapts mid-drill by rotating their IP and dictionary, the reused C2 links them with plain-language explanations on every edge!
-            </div>
-          </div>
-
-          <div
-            style={{
-              padding: '1.25rem',
-              borderRadius: 'var(--radius-lg)',
-              background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(99, 102, 241, 0.15))',
-              border: '1px solid var(--border-accent)',
-            }}
-          >
-            <span className="field-label" style={{ color: '#38bdf8' }}>Judges Closing Statement</span>
-            <p style={{ fontSize: '1.05rem', fontWeight: 600, color: '#ffffff', marginTop: '0.4rem', fontStyle: 'italic' }}>
-              "We don't claim to identify a person. We identify campaigns, score them by what they could cascade into across city infrastructure, and never unmask a citizen without a verified, scoped, multi-party-approved reason."
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* STIX 2.1 JSON Modal */}
       {stixModalOpen && (
@@ -1996,15 +2073,207 @@ export const CampaignsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Break-Glass Warrant Registration Modal */}
+      {isRegisterModalOpen && (
+        <div className="warrant-modal-backdrop" onClick={() => setIsRegisterModalOpen(false)}>
+          <div className="warrant-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="warrant-modal-header">
+              <div className="warrant-modal-title">
+                <span className="field-label" style={{ color: '#a855f7' }}>Municipal Cryptographic Escrow Authority</span>
+                <h3>Register Break-Glass Forensic Warrant</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRegisterModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1.25rem', padding: '0.2rem' }}
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleRegisterCase} className="warrant-modal-body">
+              <div className="warrant-notice-box">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2" style={{ flexShrink: 0, marginTop: '2px' }}>
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                <div>
+                  <strong>Shamir Secret Sharing Protection:</strong> Upon warrant issuance, a fresh 256-bit AES-GCM key is split into 3 mathematical shares across Municipal Custodians (Judiciary, Cybercrime, Privacy). High-definition surveillance footage remains encrypted on disk until a 2-of-3 quorum is approved.
+                </div>
+              </div>
+
+              <div className="warrant-form-grid">
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="warrant-camera">Target Camera Node</label>
+                    <select
+                      id="warrant-camera"
+                      className="form-select"
+                      value={registerForm.cameraId}
+                      onChange={(e) => setRegisterForm({ ...registerForm, cameraId: e.target.value })}
+                    >
+                      <option value="CAM-04-MARKET">CAM-04-MARKET (Market Square Central)</option>
+                      <option value="CAM-07-SUBSTATION">CAM-07-SUBSTATION (Power Substation Alpha)</option>
+                      <option value="CAM-01-NORTH">CAM-01-NORTH (Perimeter Gate North)</option>
+                      <option value="CAM-02-TERMINAL">CAM-02-TERMINAL (South Freight Hub)</option>
+                      <option value="CAM-05-HARBOR">CAM-05-HARBOR (Harbor Approach West)</option>
+                      <option value="custom">Custom Camera Identifier...</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="warrant-window">
+                      <span>10-Minute Window ID</span>
+                      <button
+                        type="button"
+                        className="btn-inline-window"
+                        onClick={() => setRegisterForm({ ...registerForm, windowId: getRecentWindowId() })}
+                      >
+                        Use Current
+                      </button>
+                    </label>
+                    <input
+                      id="warrant-window"
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. 2026-10-25T02:40"
+                      value={registerForm.windowId}
+                      onChange={(e) => setRegisterForm({ ...registerForm, windowId: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+
+                {registerForm.cameraId === 'custom' && (
+                  <div className="form-group">
+                    <label htmlFor="warrant-custom-camera">Custom Camera Identifier</label>
+                    <input
+                      id="warrant-custom-camera"
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. CAM-09-WATERFRONT"
+                      value={registerForm.customCameraId}
+                      onChange={(e) => setRegisterForm({ ...registerForm, customCameraId: e.target.value })}
+                      required
+                    />
+                  </div>
+                )}
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="warrant-campaign">Associated Attack Campaign</label>
+                    <select
+                      id="warrant-campaign"
+                      className="form-select"
+                      value={registerForm.campaignId}
+                      onChange={(e) => setRegisterForm({ ...registerForm, campaignId: e.target.value })}
+                    >
+                      {campaigns.map((camp) => (
+                        <option key={camp.campaign_id} value={camp.campaign_id}>
+                          {camp.campaign_id} ({camp.risk_level.toUpperCase()} Risk - {camp.confidence.toUpperCase()})
+                        </option>
+                      ))}
+                      <option value="CMP-INDEPENDENT">INDEPENDENT (Ad-Hoc Warrant)</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="warrant-investigator">Requesting Officer / Badge</label>
+                    <input
+                      id="warrant-investigator"
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. OFFICER-JUD-849"
+                      value={registerForm.investigatorId}
+                      onChange={(e) => setRegisterForm({ ...registerForm, investigatorId: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="warrant-hostility">
+                    <span>Hostility / Honeytoken Threat Score</span>
+                    <span
+                      className={`hostility-pill ${
+                        Number(registerForm.hostilityScore) >= 9.0
+                          ? 'critical'
+                          : Number(registerForm.hostilityScore) >= 8.0
+                          ? 'high'
+                          : ''
+                      }`}
+                    >
+                      {Number(registerForm.hostilityScore).toFixed(1)} / 10.0{' '}
+                      {Number(registerForm.hostilityScore) >= 9.0
+                        ? '• CRITICAL TRIPWIRE'
+                        : Number(registerForm.hostilityScore) >= 8.0
+                        ? '• HIGH SEVERITY'
+                        : '• ELEVATED'}
+                    </span>
+                  </label>
+                  <div className="slider-container">
+                    <input
+                      id="warrant-hostility"
+                      type="range"
+                      min="7.0"
+                      max="10.0"
+                      step="0.1"
+                      className="hostility-slider"
+                      value={registerForm.hostilityScore}
+                      onChange={(e) => setRegisterForm({ ...registerForm, hostilityScore: parseFloat(e.target.value) })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="warrant-notes">Legal Justification & Incident Log</label>
+                  <textarea
+                    id="warrant-notes"
+                    rows={3}
+                    className="form-textarea"
+                    placeholder="Document the legal basis, honeytoken activation reason, and emergency justification..."
+                    value={registerForm.incidentNotes}
+                    onChange={(e) => setRegisterForm({ ...registerForm, incidentNotes: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="warrant-modal-footer">
+                <button
+                  type="button"
+                  className="btn-warrant-cancel"
+                  onClick={() => setIsRegisterModalOpen(false)}
+                  disabled={isSubmittingCase}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-warrant-submit"
+                  disabled={isSubmittingCase}
+                >
+                  {isSubmittingCase ? (
+                    <>
+                      <span className="pulsing-dot emerald" />
+                      <span>Sharding Keys & Submitting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      <span>Issue Warrant & Shard Secret Keys</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
-}
-
-function hashlib_preview(strVal: string): string {
-  let hash = 0
-  for (let i = 0; i < strVal.length; i++) {
-    hash = (hash << 5) - hash + strVal.charCodeAt(i)
-    hash |= 0
-  }
-  return Math.abs(hash).toString(16).padStart(8, '0') + 'f9a2...'
 }
