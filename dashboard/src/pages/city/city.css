@@ -361,67 +361,6 @@
   }
 }
 
-/* Camera Scanning Radar Cone Sweep */
-.camera-radar-beam {
-  position: absolute;
-  width: 220px;
-  height: 220px;
-  border-radius: 50%;
-  pointer-events: none;
-  background: conic-gradient(
-    from 210deg at 50% 50%,
-    rgba(36, 107, 69, 0) 0deg,
-    rgba(36, 107, 69, 0) 270deg,
-    rgba(36, 107, 69, 0.22) 360deg
-  );
-  animation: radarScanSweep 4.5s linear infinite;
-  transform-origin: center center;
-  z-index: 3;
-}
-
-@keyframes radarScanSweep {
-  from {
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
-/* SVG Connection Lines & Leader Overlay */
-.interactive-overlay-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 3;
-  transform-style: preserve-3d;
-}
-
-.leader-line {
-  stroke: var(--accent-primary);
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  fill: none;
-  opacity: 0.85;
-}
-
-.leader-line-dashed {
-  stroke: var(--accent-primary);
-  stroke-width: 1.5;
-  stroke-dasharray: 4, 3;
-  animation: lineDashFlow 20s linear infinite;
-  fill: none;
-  opacity: 0.75;
-}
-
-@keyframes lineDashFlow {
-  to {
-    stroke-dashoffset: -100;
-  }
-}
-
 /* Hotspot Callouts & Badges */
 .hotspot-element {
   position: absolute;

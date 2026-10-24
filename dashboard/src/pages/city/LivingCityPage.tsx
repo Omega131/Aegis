@@ -450,9 +450,9 @@ export const LivingCityPage: React.FC = () => {
                 >
                   <defs>
                     <linearGradient id="protectiveDomeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#BFE6C4" stopOpacity="0.8" />
-                      <stop offset="50%" stopColor="#246B45" stopOpacity="0.95" />
-                      <stop offset="100%" stopColor="#BFE6C4" stopOpacity="0.8" />
+                      <stop offset="0%" stopColor="#BFE6C4" stopOpacity="0.4" />
+                      <stop offset="50%" stopColor="#246B45" stopOpacity="0.6" />
+                      <stop offset="100%" stopColor="#BFE6C4" stopOpacity="0.4" />
                     </linearGradient>
                   </defs>
                   <path
@@ -462,45 +462,7 @@ export const LivingCityPage: React.FC = () => {
                 </svg>
               )}
 
-              {/* Animated Camera Scanning Radar Cone Sweep */}
-              {isDeviceVisible(CITY_DEVICES[0]) && (
-                <div
-                  className="camera-radar-beam"
-                  style={{
-                    left: `${CITY_DEVICES[0].xPercent}%`,
-                    top: `${CITY_DEVICES[0].yPercent}%`,
-                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translate(-50%, -50%)`,
-                  }}
-                />
-              )}
-
-              {/* Interactive SVG Leader Lines Connecting Hotspots */}
-              <svg
-                className="interactive-overlay-svg"
-                viewBox="0 0 100 100"
-                preserveAspectRatio="none"
-                style={{
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translateZ(25px)`,
-                  transformOrigin: 'center center',
-                }}
-              >
-                {/* Leader line from CAM-01 Protected card (38%, 46%) down to camera pole (44.5%, 68.0%) */}
-                {isDeviceVisible(CITY_DEVICES[0]) && (
-                  <path
-                    d="M 38 46 L 41 52 L 44.5 68"
-                    className="leader-line"
-                  />
-                )}
-                {/* Leader line from Gateway pill (84%, 22%) to Gateway antenna (74.8%, 34%) */}
-                {isDeviceVisible(CITY_DEVICES[2]) && (
-                  <path
-                    d="M 84 22 L 78 26 L 74.8 34"
-                    className="leader-line"
-                  />
-                )}
-              </svg>
-
-              {/* Transformed Hotspot Overlays (Anchored Relative to Illustration Coordinates) */}
+              {/* Transformed Hotspot Overlays (Cleanly Anchored Without Cluttering Lines) */}
               <div
                 style={{
                   position: 'absolute',
@@ -516,8 +478,9 @@ export const LivingCityPage: React.FC = () => {
                     <div
                       className="camera-callout-card"
                       style={{
-                        left: '36%',
-                        top: '44%',
+                        left: `${CITY_DEVICES[0].xPercent}%`,
+                        top: `${CITY_DEVICES[0].yPercent - 7}%`,
+                        transform: 'translate(-50%, -100%)',
                         pointerEvents: 'auto',
                       }}
                       onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[0])}
@@ -543,23 +506,6 @@ export const LivingCityPage: React.FC = () => {
                         <span className="hotspot-core-dot" />
                       </div>
                     </div>
-
-                    {/* Edge Camera Label Pill */}
-                    <div
-                      className="hotspot-pill-label"
-                      style={{
-                        position: 'absolute',
-                        left: '46%',
-                        top: '32%',
-                        transform: 'translate(-50%, -50%)',
-                        pointerEvents: 'auto',
-                      }}
-                      onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[0])}
-                      onMouseEnter={() => setHoveredNode(CITY_DEVICES[0])}
-                    >
-                      <span className="label-indicator" />
-                      <span>Edge camera</span>
-                    </div>
                   </>
                 )}
 
@@ -570,9 +516,9 @@ export const LivingCityPage: React.FC = () => {
                       className="hotspot-pill-label signal-pill"
                       style={{
                         position: 'absolute',
-                        left: `${CITY_DEVICES[1].xPercent + 6}%`,
-                        top: `${CITY_DEVICES[1].yPercent - 2}%`,
-                        transform: 'translate(-50%, -50%)',
+                        left: `${CITY_DEVICES[1].xPercent}%`,
+                        top: `${CITY_DEVICES[1].yPercent - 6}%`,
+                        transform: 'translate(-50%, -100%)',
                         pointerEvents: 'auto',
                       }}
                       onClick={handleCycleTrafficLight}
@@ -618,9 +564,9 @@ export const LivingCityPage: React.FC = () => {
                       className="hotspot-pill-label"
                       style={{
                         position: 'absolute',
-                        left: '86%',
-                        top: '20%',
-                        transform: 'translate(-50%, -50%)',
+                        left: `${CITY_DEVICES[2].xPercent}%`,
+                        top: `${CITY_DEVICES[2].yPercent - 7}%`,
+                        transform: 'translate(-50%, -100%)',
                         pointerEvents: 'auto',
                       }}
                       onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[2])}
@@ -654,9 +600,9 @@ export const LivingCityPage: React.FC = () => {
                     className="hotspot-pill-label"
                     style={{
                       position: 'absolute',
-                      left: `${CITY_DEVICES[3].xPercent + 8}%`,
-                      top: `${CITY_DEVICES[3].yPercent + 2}%`,
-                      transform: 'translate(-50%, -50%)',
+                      left: `${CITY_DEVICES[3].xPercent}%`,
+                      top: `${CITY_DEVICES[3].yPercent - 6}%`,
+                      transform: 'translate(-50%, -100%)',
                       pointerEvents: 'auto',
                     }}
                     onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[3])}
@@ -674,8 +620,8 @@ export const LivingCityPage: React.FC = () => {
                     style={{
                       position: 'absolute',
                       left: `${CITY_DEVICES[4].xPercent}%`,
-                      top: `${CITY_DEVICES[4].yPercent - 7}%`,
-                      transform: 'translate(-50%, -50%)',
+                      top: `${CITY_DEVICES[4].yPercent - 6}%`,
+                      transform: 'translate(-50%, -100%)',
                       pointerEvents: 'auto',
                     }}
                     onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[4])}
