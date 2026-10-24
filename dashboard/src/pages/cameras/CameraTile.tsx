@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { API_BASE, type CameraNodeStatus } from './types'
 
 interface CameraTileProps {
@@ -12,24 +12,27 @@ export const CameraTile: React.FC<CameraTileProps> = ({
   onSimulate,
   isSimulating = false,
 }) => {
-  // Step 1: Manage timestamp state to refresh blurred frame image every ~500 ms
+  // Step 1: Manage timestamp state to refresh blurred frame image smoothly
   const [frameTimestamp, setFrameTimestamp] = useState<number>(() => Date.now())
   const [hasImageError, setHasImageError] = useState<boolean>(false)
+  const timerRef = useRef<number | null>(null)
+
+  // Step 2: Smooth chained frame refresh (750ms after each frame loads to prevent network choking)
+  const scheduleNextFrame = () => {
+    if (camera.status !== 'stopped') {
+      if (timerRef.current) window.clearTimeout(timerRef.current)
+      timerRef.current = window.setTimeout(() => {
+        setFrameTimestamp(Date.now())
+        setHasImageError(false)
+      }, 750)
+    }
+  }
 
   useEffect(() => {
-    // Only refresh frames if the camera node is currently running or in anomaly state
-    if (camera.status === 'stopped') {
-      return
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current)
     }
-
-    // Step 2: Set up 1200 ms timer to update query param for live JPEG streaming (smooth without network choking)
-    const intervalId = setInterval(() => {
-      setFrameTimestamp(Date.now())
-      setHasImageError(false)
-    }, 1200)
-
-    return () => clearInterval(intervalId)
-  }, [camera.status])
+  }, [])
 
   // Step 3: Compute health indicator class
   const getHealthClass = (): string => {
@@ -102,7 +105,11 @@ export const CameraTile: React.FC<CameraTileProps> = ({
           <img
             src={frameUrl}
             alt={`Camera feed for ${camera.camera_id}`}
-            onError={() => setHasImageError(true)}
+            onLoad={scheduleNextFrame}
+            onError={() => {
+              setHasImageError(true)
+              scheduleNextFrame()
+            }}
             loading="eager"
           />
         ) : (
