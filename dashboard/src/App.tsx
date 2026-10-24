@@ -3,6 +3,7 @@ import { Layout, type NavTab } from './shell'
 import { CamerasPage } from './pages/cameras'
 import { DecoyPage } from './pages/decoy'
 import { CampaignsPage } from './pages/campaigns'
+import { HackerPovPage } from './pages/hacker'
 
 export function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('cameras')
@@ -15,6 +16,8 @@ export function App() {
         return <DecoyPage />
       case 'campaigns':
         return <CampaignsPage />
+      case 'hacker':
+        return <HackerPovPage onNavigateTab={setActiveTab} />
       default:
         return <CamerasPage />
     }

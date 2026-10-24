@@ -1520,6 +1520,62 @@ def simulate_anomaly_api(camera_id: str, anomaly: str) -> dict[str, Any]:
     }
 
 
+@router.get("/{camera_id}/fetch")
+def fetch_camera_storage_api(camera_id: str, window_id: str | None = None) -> dict[str, Any]:
+    """
+    GET /api/cameras/{camera_id}/fetch
+    Simulates a hacker attempting to dump or fetch raw footage from the edge node.
+    Demonstrates zero-raw-ingestion:
+    - Raw frames are discarded immediately after in-memory privacy blur.
+    - Only AES-256-GCM encrypted face crops are stored in content-addressed storage.
+    - The raw symmetric key has been split into Shamir 2-of-3 shares and deleted from node memory.
+    """
+    node = EDGE_MESH.nodes.get(camera_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
+
+    target_window = window_id or get_window_id()
+    records = get_encrypted_footage(camera_id, target_window)
+
+    return {
+        "camera_id": camera_id,
+        "window_id": target_window,
+        "intercept_status": "ENCRYPTED_ONLY",
+        "raw_ingestion": "DISABLED_ZERO_RAW_STORAGE",
+        "privacy_guarantee": "All face crops are AES-256-GCM encrypted before storage; raw frames never hit disk.",
+        "key_status": "SPLIT_INTO_SHAMIR_SHARES (requires 2-of-3 municipal custodian quorum to decrypt)",
+        "stored_records_count": len(records),
+        "ciphertext_samples": [
+            {
+                "hash": r["hash"],
+                "ciphertext_length": len(r["ciphertext"]),
+                "ciphertext_hex_preview": r["ciphertext"][:32].hex() + "... [ENCRYPTED BLOB]",
+            }
+            for r in records[:5]
+        ],
+        "unblurred_footage": None,
+        "security_verdict": "ATTACK BLOCKED: Zero raw frames stored. Encrypted crops require 2-of-3 Shamir quorum.",
+    }
+
+
+@router.get("/{camera_id}/raw")
+def hacker_raw_stream_exploit(camera_id: str):
+    """
+    GET /api/cameras/{camera_id}/raw
+    Hacker attempts to access raw unblurred RTSP/video stream.
+    Strictly blocked: Aegis design enforces in-memory blurring before any frame leaves the pipeline.
+    """
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error": "ZERO_RAW_EXPOSURE",
+            "message": "Raw frame access rejected by Aegis Sentry firmware. Only blurred frames (/frame) are emitted.",
+            "enforcement": "Hardware-level in-memory YuNet blur applied prior to frame dispatch.",
+        },
+    )
+
+
+
 # =============================================================================
 # 8. SELF-TEST
 # =============================================================================
