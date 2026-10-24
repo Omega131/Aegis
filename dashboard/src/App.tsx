@@ -3,7 +3,7 @@ import { AppLayout } from './components/AppShell/AppLayout';
 import { LivingCityPage } from './pages/city';
 import { CamerasPage } from './pages/cameras';
 import { DecoyPage } from './pages/decoy';
-import { EvidencePage } from './pages/evidence';
+import { CampaignsPage } from './pages/campaigns';
 import { EscrowPage } from './pages/escrow';
 import { AuditPage } from './pages/audit';
 import { SettingsPage } from './pages/settings';
@@ -20,7 +20,7 @@ function AppContent() {
       case 'decoy':
         return <DecoyPage />;
       case 'evidence':
-        return <EvidencePage />;
+        return <CampaignsPage />;
       case 'escrow':
         return <EscrowPage />;
       case 'audit':

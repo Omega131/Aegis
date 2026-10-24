@@ -334,7 +334,7 @@ const FALLBACK_AUDIT_LOG: AuditBlock[] = [
     case_id: null,
     camera_id: null,
     window_id: null,
-    details: 'AegisMirage break-glass cryptographic escrow ledger initialized.',
+    details: 'Aeigs break-glass cryptographic escrow ledger initialized.',
     prev_hash: '0000000000000000000000000000000000000000000000000000000000000000',
     current_hash: '7e28b193fd314e389e13a01bf8a0e88320182470128941920831490182390182',
   },
@@ -768,8 +768,8 @@ export const CampaignsPage: React.FC = () => {
       objects: [
         {
           type: 'identity',
-          id: 'identity--aegismirage-soc',
-          name: 'AegisMirage Smart City CSIRT',
+          id: 'identity--aeigs-soc',
+          name: 'Aeigs Smart City CSIRT',
           identity_class: 'organization',
         },
         {
@@ -781,10 +781,10 @@ export const CampaignsPage: React.FC = () => {
         {
           type: 'campaign',
           id: `campaign--${crypto.randomUUID()}`,
-          name: `AegisMirage Campaign ${activeCamp?.campaign_id}`,
+          name: `Aeigs Campaign ${activeCamp?.campaign_id}`,
           confidence: activeCamp?.confidence === 'high' ? 85 : 60,
           description: activeCamp?.evidence_reasons.join('; '),
-          labels: [`risk:${activeCamp?.risk_level}`, 'iot-botnet', 'aegismirage'],
+          labels: [`risk:${activeCamp?.risk_level}`, 'iot-botnet', 'aeigs'],
         },
       ],
     }
@@ -1021,18 +1021,18 @@ export const CampaignsPage: React.FC = () => {
             borderRadius: 'var(--radius-md)',
             background:
               drillBanner.type === 'danger'
-                ? 'rgba(244, 63, 94, 0.12)'
+                ? 'rgba(220, 38, 38, 0.08)'
                 : drillBanner.type === 'success'
-                ? 'rgba(56, 189, 248, 0.12)'
-                : 'rgba(245, 158, 11, 0.12)',
+                ? 'var(--accent-primary-subtle)'
+                : 'rgba(217, 119, 6, 0.08)',
             border: `1px solid ${
               drillBanner.type === 'danger'
-                ? 'rgba(244, 63, 94, 0.35)'
+                ? 'var(--border-danger)'
                 : drillBanner.type === 'success'
-                ? 'rgba(56, 189, 248, 0.35)'
-                : 'rgba(245, 158, 11, 0.35)'
+                ? 'var(--border-production)'
+                : 'var(--border-review)'
             }`,
-            color: '#ffffff',
+            color: 'var(--text-primary)',
             display: 'flex',
             flexDirection: 'column',
             gap: '0.25rem',
@@ -1040,17 +1040,17 @@ export const CampaignsPage: React.FC = () => {
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <strong style={{ fontSize: '0.9rem', color: drillBanner.type === 'danger' ? '#fb7185' : drillBanner.type === 'success' ? '#38bdf8' : '#fbbf24' }}>
+            <strong style={{ fontSize: '0.9rem', color: drillBanner.type === 'danger' ? 'var(--accent-danger)' : drillBanner.type === 'success' ? 'var(--accent-primary)' : 'var(--accent-review)' }}>
               {drillBanner.title}
             </strong>
             <button
               onClick={() => setDrillBanner(null)}
-              style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1rem' }}
+              style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1rem' }}
             >
               ✕
             </button>
           </div>
-          <span style={{ fontSize: '0.825rem', color: '#e2e8f0' }}>{drillBanner.desc}</span>
+          <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>{drillBanner.desc}</span>
         </div>
       )}
 
@@ -1083,7 +1083,7 @@ export const CampaignsPage: React.FC = () => {
         <div className="metric-card">
           <span className="metric-title">Federated Threat Chain</span>
           <div className="metric-value-wrap">
-            <span className="metric-val" style={{ color: '#38bdf8' }}>
+            <span className="metric-val" style={{ color: 'var(--accent-primary)' }}>
               {federatedRecords.length}
             </span>
             <span className="metric-sub">Smart contract blocks</span>
@@ -1126,7 +1126,7 @@ export const CampaignsPage: React.FC = () => {
           onClick={() => setActiveSubTab('federation')}
         >
           <span>Cross-City Federation</span>
-          <span className="subtab-count" style={{ background: 'rgba(56, 189, 248, 0.25)', color: '#38bdf8' }}>
+          <span className="subtab-count" style={{ background: 'var(--accent-primary-subtle)', color: 'var(--accent-primary)' }}>
             Stretch
           </span>
         </button>
@@ -1358,7 +1358,7 @@ export const CampaignsPage: React.FC = () => {
             <div className="inspector-header">
               <div>
                 <span className="field-label">Inspector Detail</span>
-                <h3 style={{ fontSize: '1rem', color: '#fff' }}>{activeSession ? activeSession.session_id : activeCampaign?.campaign_id}</h3>
+                <h3 style={{ fontSize: '1rem', color: 'var(--text-primary)' }}>{activeSession ? activeSession.session_id : activeCampaign?.campaign_id}</h3>
               </div>
               <span className={`status-chip ${activeCampaign?.risk_level === 'high' ? 'denied' : 'pending'}`}>
                 {activeCampaign?.risk_level.toUpperCase()} RISK
@@ -1367,13 +1367,13 @@ export const CampaignsPage: React.FC = () => {
 
             <div className="inspector-body">
               {activeCampaign && (
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
+                <div style={{ background: 'var(--bg-surface-subtle)', border: '1px solid var(--border-subtle)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
                   <div className="field-label">Linked Campaign</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
-                    <span style={{ fontWeight: 600, color: '#fbbf24' }}>{activeCampaign.campaign_id}</span>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Confidence: {activeCampaign.confidence}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{activeCampaign.campaign_id}</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Confidence: {activeCampaign.confidence}</span>
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#cbd5e1', marginTop: '0.4rem' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
                     {activeCampaign.evidence_reasons[0]}
                   </div>
                 </div>
@@ -1406,10 +1406,10 @@ export const CampaignsPage: React.FC = () => {
                 <div className="field-group">
                   <span className="field-label">HASSH Fingerprint Profile</span>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                    <span className="code-pill" style={{ color: activeSession.hassh.weaponized ? '#fb7185' : '#38bdf8' }}>
+                    <span className="code-pill" style={{ color: activeSession.hassh.weaponized ? 'var(--accent-danger)' : 'var(--accent-primary)' }}>
                       {activeSession.hassh.threat_profile}
                     </span>
-                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#64748b' }}>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
                       MD5: {activeSession.hassh.hassh}
                     </span>
                   </div>
@@ -1433,7 +1433,7 @@ export const CampaignsPage: React.FC = () => {
                 <div className="field-group">
                   <span className="field-label">Command & Control (C2) Server</span>
                   <div className="field-value">
-                    <span className="code-pill" style={{ color: '#fb7185', borderColor: 'rgba(244, 63, 94, 0.3)' }}>
+                    <span className="code-pill" style={{ color: 'var(--accent-danger)', borderColor: 'rgba(220, 38, 38, 0.3)' }}>
                       {activeSession.c2_address}
                     </span>
                   </div>
@@ -1444,7 +1444,7 @@ export const CampaignsPage: React.FC = () => {
               {activeSession?.malware_hash && (
                 <div className="field-group">
                   <span className="field-label">Malware Binary SHA-256</span>
-                  <div className="field-value" style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#94a3b8' }}>
+                  <div className="field-value" style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
                     {activeSession.malware_hash.substring(0, 28)}...
                   </div>
                 </div>
@@ -1460,7 +1460,7 @@ export const CampaignsPage: React.FC = () => {
                       <span>{cmd}</span>
                     </div>
                   ))}
-                  {activeSession?.commands.length === 0 && <span style={{ color: '#64748b' }}>No commands entered</span>}
+                  {activeSession?.commands.length === 0 && <span style={{ color: 'var(--text-muted)' }}>No commands entered</span>}
                 </div>
               </div>
 
@@ -1564,10 +1564,10 @@ export const CampaignsPage: React.FC = () => {
 
             <div className="quorum-tracker">
               <div>
-                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fff' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
                   Shamir 2-of-3 Quorum: {activeCase?.approvals.length} of 2 approvals recorded
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                   {activeCase?.status === 'approved'
                     ? 'Quorum reached! Scoped AES-256 decryption key reconstructed.'
                     : 'Awaiting minimum 2 custodian approvals to reconstruct key.'}
@@ -1600,7 +1600,7 @@ export const CampaignsPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <div style={{ fontSize: '0.725rem', color: '#64748b' }}>
+                      <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
                         Share #{custodian.share_index} of Shamir polynomial
                       </div>
 
@@ -1632,22 +1632,22 @@ export const CampaignsPage: React.FC = () => {
               <div className="unmasked-key-card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2">
                       <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                     </svg>
-                    <strong style={{ fontSize: '0.9rem', color: '#34d399' }}>
+                    <strong style={{ fontSize: '0.9rem', color: 'var(--accent-primary)' }}>
                       Warrant Approved: Scoped Decryption Key Unlocked
                     </strong>
                   </div>
-                  <span className="code-pill" style={{ color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.4)' }}>
+                  <span className="code-pill" style={{ color: 'var(--accent-primary)', borderColor: 'var(--border-production)' }}>
                     Shamir 2-of-3 Quorum Verified
                   </span>
                 </div>
 
-                <div style={{ fontSize: '0.775rem', color: '#e2e8f0', wordBreak: 'break-all' }}>
+                <div style={{ fontSize: '0.775rem', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
                   <strong>Reconstructed AES-256-GCM Key:</strong>{' '}
-                  <code style={{ color: '#34d399' }}>{revealedFootageKey || 'd8f3b490c2914102983719028341908239018239018230918209381029381029'}</code>
+                  <code style={{ color: 'var(--accent-primary)' }}>{revealedFootageKey || 'd8f3b490c2914102983719028341908239018239018230918209381029381029'}</code>
                 </div>
 
                 <div className="forensic-footage-viewer">
@@ -1845,7 +1845,7 @@ export const CampaignsPage: React.FC = () => {
           <div className="audit-control-bar">
             <div>
               <span className="field-label">Immutable Cryptographic Ledger</span>
-              <h3 style={{ fontSize: '1.05rem', color: '#fff' }}>SHA-256 Hash-Chained Append-Only Trail</h3>
+              <h3 style={{ fontSize: '1.05rem', color: 'var(--text-primary)' }}>SHA-256 Hash-Chained Append-Only Trail</h3>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -1898,7 +1898,7 @@ export const CampaignsPage: React.FC = () => {
                           {log.camera_id} @ {log.window_id}
                         </code>
                       ) : (
-                        <span style={{ color: '#64748b' }}>System Enclave</span>
+                        <span style={{ color: 'var(--text-muted)' }}>System Enclave</span>
                       )}
                     </td>
                     <td style={{ maxWidth: '320px', lineHeight: 1.4, fontSize: '0.775rem' }}>{log.details}</td>
@@ -1925,9 +1925,9 @@ export const CampaignsPage: React.FC = () => {
           {/* Smart Contract Hero Grid */}
           <div className="federation-hero">
             <div className="city-node-card">
-              <span className="field-label" style={{ color: '#38bdf8' }}>Originating Municipality</span>
-              <h3 style={{ fontSize: '1.05rem', color: '#fff' }}>City A (Neo-Pune ICCC)</h3>
-              <p style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+              <span className="field-label" style={{ color: 'var(--accent-primary)' }}>Originating Municipality</span>
+              <h3 style={{ fontSize: '1.05rem', color: 'var(--text-primary)' }}>City A (Neo-Pune ICCC)</h3>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                 Detects Mirai campaign CMP-001 targeting local traffic sensors. Publishes threat signature to testnet contract.
               </p>
               <button
@@ -1942,14 +1942,14 @@ export const CampaignsPage: React.FC = () => {
 
             <div className="contract-sync-hub">
               <div className="chain-block-cube">⛓️</div>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#38bdf8' }}>Polygon Testnet</span>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent-primary)' }}>Polygon Testnet</span>
               <code style={{ fontSize: '0.7rem' }}>0x71C2...A89F</code>
             </div>
 
             <div className="city-node-card">
-              <span className="field-label" style={{ color: '#fbbf24' }}>Federated Consumer</span>
-              <h3 style={{ fontSize: '1.05rem', color: '#fff' }}>City B (Cyber-Bengaluru ICCC)</h3>
-              <p style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+              <span className="field-label" style={{ color: 'var(--accent-review)' }}>Federated Consumer</span>
+              <h3 style={{ fontSize: '1.05rem', color: 'var(--text-primary)' }}>City B (Cyber-Bengaluru ICCC)</h3>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                 Monitors on-chain registry. Automatically pre-routes recognized botnet probes to Phantom Twin decoys!
               </p>
               <button
@@ -1967,7 +1967,7 @@ export const CampaignsPage: React.FC = () => {
           <div className="audit-table-card">
             <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-subtle)' }}>
               <span className="field-label">Decentralized Threat Registry</span>
-              <h3 style={{ fontSize: '1rem', color: '#fff' }}>Smart Contract Transaction Ledger</h3>
+              <h3 style={{ fontSize: '1rem', color: 'var(--text-primary)' }}>Smart Contract Transaction Ledger</h3>
             </div>
             <table className="audit-table">
               <thead>
@@ -2009,10 +2009,10 @@ export const CampaignsPage: React.FC = () => {
 
           {/* City B Prevented Attacks Log */}
           {cityBPreventions.length > 0 && (
-            <div className="audit-table-card" style={{ borderColor: 'rgba(56, 189, 248, 0.4)' }}>
+            <div className="audit-table-card" style={{ borderColor: 'var(--border-production)' }}>
               <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span className="field-label" style={{ color: '#38bdf8' }}>City B Live Telemetry</span>
-                <h3 style={{ fontSize: '1rem', color: '#fff' }}>Neutralized Multi-City Attacks</h3>
+                <span className="field-label" style={{ color: 'var(--accent-primary)' }}>City B Live Telemetry</span>
+                <h3 style={{ fontSize: '1rem', color: 'var(--text-primary)' }}>Neutralized Multi-City Attacks</h3>
               </div>
               <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {cityBPreventions.map((p, i) => (
@@ -2020,17 +2020,17 @@ export const CampaignsPage: React.FC = () => {
                     key={i}
                     style={{
                       padding: '0.75rem 1rem',
-                      background: 'rgba(56, 189, 248, 0.08)',
+                      background: 'var(--accent-primary-subtle)',
                       borderRadius: 'var(--radius-md)',
-                      border: '1px solid rgba(56, 189, 248, 0.25)',
+                      border: '1px solid var(--border-production)',
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
                     }}
                   >
                     <div>
-                      <strong style={{ color: '#38bdf8', fontSize: '0.85rem' }}>{p.incident_id}</strong>
-                      <span style={{ color: '#cbd5e1', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{p.reason}</span>
+                      <strong style={{ color: 'var(--accent-primary)', fontSize: '0.85rem' }}>{p.incident_id}</strong>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{p.reason}</span>
                     </div>
                     <span className="status-chip approved">Preemptive Decoy Routed</span>
                   </div>
@@ -2049,7 +2049,7 @@ export const CampaignsPage: React.FC = () => {
             <div className="stix-modal-header">
               <div>
                 <span className="field-label">OASIS Standard CTI</span>
-                <h3 style={{ fontSize: '1rem', color: '#fff' }}>STIX 2.1 Threat Intelligence Bundle</h3>
+                <h3 style={{ fontSize: '1rem', color: 'var(--text-primary)' }}>STIX 2.1 Threat Intelligence Bundle</h3>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
@@ -2063,7 +2063,7 @@ export const CampaignsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setStixModalOpen(false)}
-                  style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1.2rem' }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}
                 >
                   ✕
                 </button>
@@ -2080,13 +2080,13 @@ export const CampaignsPage: React.FC = () => {
           <div className="warrant-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="warrant-modal-header">
               <div className="warrant-modal-title">
-                <span className="field-label" style={{ color: '#a855f7' }}>Municipal Cryptographic Escrow Authority</span>
-                <h3>Register Break-Glass Forensic Warrant</h3>
+                <span className="field-label" style={{ color: 'var(--accent-primary)' }}>Municipal Cryptographic Escrow Authority</span>
+                <h3 style={{ color: 'var(--text-primary)' }}>Register Break-Glass Forensic Warrant</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsRegisterModalOpen(false)}
-                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1.25rem', padding: '0.2rem' }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.25rem', padding: '0.2rem' }}
                 aria-label="Close modal"
               >
                 ✕
