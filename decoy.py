@@ -101,6 +101,14 @@ VIRTUAL_FS: Dict[str, object] = {
         "region=ap-south-1\n"
     ),
     "/home/operator/.bashrc": "export PATH=$PATH:/bin\n",
+    "/etc/shadow": (
+        f"{HONEYTOKEN_MARKER}\n"
+        "root:$6$canary$qR8L3pXZ0991823...:19200:0:99999:7:::\n"
+        "admin:$6$canary$9xK2mN1vY441829...:19200:0:99999:7:::\n"
+    ),
+    "/etc/hosts": "127.0.0.1 localhost\n192.168.1.50 aegis-cam\n",
+    "/proc/cpuinfo": "processor\t: 0\nmodel name\t: ARMv8 Processor rev 4 (v8l)\nBogoMIPS\t: 38.40\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32\nCPU implementer\t: 0x41\n",
+    "/proc/uptime": "14285.42 56891.12\n",
 }
 
 # The Sandboxed Rickroll Response Payload (never touches external systems)
@@ -552,19 +560,54 @@ class DecoyManager:
         elif verb == "whoami":
             out = "root\n"
 
+        elif verb == "id":
+            out = "uid=0(root) gid=0(root) groups=0(root)\n"
+
         elif verb == "uname" or verb == "uname -a":
             out = "Linux aegis-smartcam-01 5.10.0-arm64 #1 PREEMPT aarch64 GNU/Linux\n"
 
         elif verb == "ls":
-            target_path = session.current_dir if not args else self._resolve_path(session.current_dir, args[0])
+            flags = [a for a in args if a.startswith("-")]
+            path_args = [a for a in args if not a.startswith("-")]
+            target_arg = path_args[0] if path_args else ""
+            target_path = session.current_dir if not target_arg else self._resolve_path(session.current_dir, target_arg)
             if target_path in VIRTUAL_FS:
                 node = VIRTUAL_FS[target_path]
+                is_long = any("l" in f for f in flags)
                 if isinstance(node, list):
-                    out = "  ".join(node) + "\n"
+                    if is_long:
+                        entries = ["total 32", "drwxr-xr-x 2 root root 4096 Oct 25 04:00 .", "drwxr-xr-x 8 root root 4096 Oct 25 03:30 .."]
+                        for item in node:
+                            full_sub = posixpath.normpath(posixpath.join(target_path, item))
+                            sub_node = VIRTUAL_FS.get(full_sub)
+                            if isinstance(sub_node, list):
+                                entries.append(f"drwxr-xr-x 2 root root 4096 Oct 25 04:00 {item}")
+                            else:
+                                size = len(sub_node.encode()) if isinstance(sub_node, str) else 1024
+                                entries.append(f"-rw-r--r-- 1 root root {size:5d} Oct 25 04:01 {item}")
+                        out = "\n".join(entries) + "\n"
+                    else:
+                        out = "  ".join(node) + "\n"
                 else:
                     out = f"{posixpath.basename(target_path)}\n"
             else:
-                out = f"ls: cannot access '{args[0] if args else ''}': No such file or directory\n"
+                out = f"ls: cannot access '{target_arg or (args[0] if args else '')}': No such file or directory\n"
+
+        elif verb == "ps":
+            out = (
+                "PID   USER     COMMAND\n"
+                "    1 root     /sbin/init\n"
+                "  214 root     /usr/bin/aegis-sentry --camera cam-smart-04\n"
+                "  302 root     /usr/sbin/dropbear -p 2222\n"
+                "  412 root     /bin/sh\n"
+            )
+
+        elif verb in ("ifconfig", "ip"):
+            out = (
+                "eth0      Link encap:Ethernet  HWaddr 00:1A:79:B4:9C:12\n"
+                "          inet addr:192.168.1.50  Bcast:192.168.1.255  Mask:255.255.255.0\n"
+                "          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1\n"
+            )
 
         elif verb == "cd":
             if not args or args[0] in ("~", ""):
@@ -610,10 +653,23 @@ class DecoyManager:
         elif verb in ("curl", "wget", "tftp"):
             out = "Connected to remote host... File saved.\n"
 
+        elif verb == "echo":
+            out = f"{' '.join(args)}\n"
+
+        elif verb == "chmod":
+            out = ""
+
+        elif verb.startswith("./") or verb in ("sh", "bash"):
+            prog = args[0] if (verb in ("sh", "bash") and args) else verb
+            out = f"[+] Process {posixpath.basename(prog)} started (PID 1421). Worker running in background.\n"
+
+        elif verb == "clear":
+            out = "\x1b[2J\x1b[H"
+
         elif verb == "help":
             out = (
                 "AegisOS SmartCam Diagnostic Shell\n"
-                "Supported commands: ls, cd, cat, head, tail, more, less, pwd, whoami, uname, curl, wget, help, exit\n"
+                "Supported commands: ls, cd, cat, head, tail, more, less, pwd, whoami, id, uname, ps, ifconfig, curl, wget, echo, chmod, help, exit\n"
             )
 
         elif verb == "exit":
@@ -1249,10 +1305,18 @@ async def simulate_decoy_command(req: CommandSimulationRequest) -> Dict[str, obj
     """
     Simulates command input within a decoy session (used by dashboard and integration drills).
     """
+    session = _decoy_manager.get_or_create_session(
+        req.session_id,
+        source_ip=req.source_ip if req.source_ip else "194.26.29.112",
+        service="ssh",
+    )
     output, event = execute_decoy_command(req.session_id, req.command)
     return {
         "output": output,
         "event": event.model_dump(),
+        "current_dir": session.current_dir,
+        "session_id": session.session_id,
+        "honeytoken_hit": session.honeytoken_hit,
     }
 
 
