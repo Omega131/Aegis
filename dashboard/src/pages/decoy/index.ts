@@ -1,0 +1,1 @@
+export { DecoyPage } from './DecoyPage'

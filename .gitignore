@@ -1,0 +1,12 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.db
+*.sqlite3
+
+# Node / Vite
+dashboard/node_modules/
+dashboard/dist/
+.DS_Store
