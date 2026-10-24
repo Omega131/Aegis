@@ -625,6 +625,9 @@ def cast_custodian_vote(case_id: str, vote: VoteRequest):
     if vote.custodian_id not in CUSTODIANS:
         raise HTTPException(status_code=400, detail="Invalid custodian identifier")
 
+    if vote.decision not in ("approve", "deny"):
+        raise HTTPException(status_code=400, detail="Invalid vote decision. Must be 'approve' or 'deny'.")
+
     custodian = CUSTODIANS[vote.custodian_id]
     case_votes = CASE_VOTES.setdefault(case_id, {})
     case_votes[vote.custodian_id] = vote.decision
