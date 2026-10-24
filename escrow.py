@@ -1,5 +1,5 @@
 """
-AegisMirage - Stage 4: ZK Break-Glass Escrow & Cryptographic Audit Log
+AegisMirage - Stage 4: Break-Glass Escrow & Cryptographic Audit Log
 Owner: Member C (escrow.py)
 
 Responsibilities:
@@ -10,7 +10,6 @@ Responsibilities:
 - Hash-chained, append-only cryptographic audit log (tamper-evident).
 - Drill A: Unauthorized pedestrian unmask attempt blocked and logged.
 - Drill B: Real honeypot attack approved by 2-of-3 custodians, audit entry written before unlock.
-- ZK proof simulation (threshold quorum verification without custodian identity exposure).
 - Self-test suite (Shamir roundtrip across all share pairs, audit chain tamper detection).
 """
 
@@ -295,83 +294,6 @@ def register_camera_window_key(camera_id: str, window_id: str, master_key_hex: O
     return bundle
 
 
-# =============================================================================
-# 5. ZK Proof Simulation (Stretch Goal)
-# =============================================================================
-# =============================================================================
-# 5. ZK-SNARK Groth16 Proof Circuit Simulation (Stretch Goal)
-# =============================================================================
-def generate_zk_quorum_proof(case_id: str, camera_id: str, window_id: str, approvals: List[str]) -> Dict[str, Any]:
-    """
-    Produces a full Groth16 zero-knowledge proof representation verifying that:
-    1. A quorum of >= 2 authorized municipal custodians evaluated the polynomial.
-    2. No individual custodian identity is revealed (Zero-Knowledge Privacy).
-    3. The proof is strictly bound to camera_id and window_id (Scope Constraint).
-    """
-    cam_hash_int = int(hashlib.sha256(camera_id.encode()).hexdigest(), 16) % PRIME_256
-    win_hash_int = int(hashlib.sha256(window_id.encode()).hexdigest(), 16) % PRIME_256
-    quorum_size = len(approvals)
-
-    # Simulated BN254 / Alt-bn128 elliptic curve points
-    pi_a = [
-        "0x" + hashlib.sha256(f"pi_a_x|{case_id}|{quorum_size}".encode()).hexdigest(),
-        "0x" + hashlib.sha256(f"pi_a_y|{case_id}|{quorum_size}".encode()).hexdigest(),
-    ]
-    pi_b = [
-        [
-            "0x" + hashlib.sha256(f"pi_b_x0|{case_id}".encode()).hexdigest(),
-            "0x" + hashlib.sha256(f"pi_b_x1|{case_id}".encode()).hexdigest(),
-        ],
-        [
-            "0x" + hashlib.sha256(f"pi_b_y0|{case_id}".encode()).hexdigest(),
-            "0x" + hashlib.sha256(f"pi_b_y1|{case_id}".encode()).hexdigest(),
-        ],
-    ]
-    pi_c = [
-        "0x" + hashlib.sha256(f"pi_c_x|{case_id}".encode()).hexdigest(),
-        "0x" + hashlib.sha256(f"pi_c_y|{case_id}".encode()).hexdigest(),
-    ]
-
-    public_signals = [
-        "1",  # Constant wire
-        hex(cam_hash_int),
-        hex(win_hash_int),
-        "2",  # Required threshold
-        str(quorum_size),
-    ]
-
-    vk = {
-        "curve": "bn254",
-        "protocol": "groth16",
-        "nPublic": 4,
-        "alpha_g1": ["0x18a9...", "0x20f1..."],
-        "beta_g2": [["0x03f1...", "0x12a8..."], ["0x21b9...", "0x09e4..."]],
-        "gamma_g2": [["0x19f2...", "0x0182..."], ["0x10b9...", "0x24a8..."]],
-        "delta_g2": [["0x28a1...", "0x11b3..."], ["0x09f4...", "0x14c2..."]],
-    }
-
-    is_valid = quorum_size >= 2
-    verification_hash = hashlib.sha256(f"{pi_a}|{pi_b}|{pi_c}|{public_signals}".encode()).hexdigest()
-
-    return {
-        "statement": f"Valid 2-of-3 Custodian Quorum for Camera {camera_id} @ Window {window_id}",
-        "proof_type": "Groth16/zk-SNARK over BN254",
-        "circuit_name": "AegisEscrowQuorumVerifier.circom",
-        "quorum_size": quorum_size,
-        "required_threshold": 2,
-        "proof": {
-            "pi_a": pi_a,
-            "pi_b": pi_b,
-            "pi_c": pi_c,
-        },
-        "public_signals": public_signals,
-        "verification_key": vk,
-        "pairing_check_equation": "e(pi_A, pi_B) == e(alpha, beta) * e(IC_0 + sum(x_i * IC_i), gamma) * e(pi_C, delta)",
-        "zk_commitment": f"0x{verification_hash}",
-        "mathematically_verified": is_valid,
-        "scope_constraint": "Single 10-Minute Window Only (Blanket Unmask Mathematically Impossible)",
-    }
-
 
 # =============================================================================
 # 6. Seed Demo Data (Drills A & B)
@@ -537,14 +459,6 @@ def get_case(case_id: str):
 
     votes = CASE_VOTES.get(case_id, {})
     unlocked_key = UNLOCKED_KEYS.get(case_id)
-    zk_proof = None
-    if case.status == "approved":
-        zk_proof = generate_zk_quorum_proof(
-            case_id=case.case_id,
-            camera_id=case.camera_id,
-            window_id=case.window_id,
-            approvals=case.approvals,
-        )
 
     return {
         "case": case,
@@ -552,22 +466,7 @@ def get_case(case_id: str):
         "approvals_count": len(case.approvals),
         "quorum_met": case.status == "approved",
         "unlocked_key": unlocked_key,
-        "zk_proof": zk_proof,
     }
-
-
-@router.get("/cases/{case_id}/zk-circuit")
-def get_case_zk_circuit(case_id: str):
-    """Returns full Groth16 zk-SNARK circuit representation and pairing check for the case."""
-    case = CASES.get(case_id)
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-    return generate_zk_quorum_proof(
-        case_id=case.case_id,
-        camera_id=case.camera_id,
-        window_id=case.window_id,
-        approvals=case.approvals,
-    )
 
 
 @router.post("/cases", response_model=schema.CaseRequest)

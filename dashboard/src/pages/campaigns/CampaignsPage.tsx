@@ -364,7 +364,7 @@ const FALLBACK_FEDERATION_RECORDS: FederatedRecord[] = [
 export const CampaignsPage: React.FC = () => {
   // Navigation & Sub-Tabs
   const [activeSubTab, setActiveSubTab] = useState<
-    'graph' | 'escrow' | 'audit' | 'mitre_hassh' | 'zk_snark' | 'federation' | 'guide'
+    'graph' | 'escrow' | 'audit' | 'mitre_hassh' | 'federation' | 'guide'
   >('graph')
 
   // Core Data States
@@ -383,8 +383,6 @@ export const CampaignsPage: React.FC = () => {
 
   // Verification & Feedback States
   const [auditVerified, setAuditVerified] = useState<boolean | null>(null)
-  const [zkVerified, setZkVerified] = useState<boolean | null>(null)
-  const [isVerifyingZk, setIsVerifyingZk] = useState<boolean>(false)
   const [drillBanner, setDrillBanner] = useState<{ type: 'info' | 'success' | 'danger'; title: string; desc: string } | null>(null)
   const [isVerifyingChain, setIsVerifyingChain] = useState<boolean>(false)
   const [revealedFootageKey, setRevealedFootageKey] = useState<string | null>(null)
@@ -536,7 +534,6 @@ export const CampaignsPage: React.FC = () => {
     }
     setDrillBanner(null)
     setAuditVerified(null)
-    setZkVerified(null)
     setRevealedFootageKey(null)
   }
 
@@ -618,14 +615,6 @@ export const CampaignsPage: React.FC = () => {
     setTimeout(() => setIsVerifyingChain(false), 250)
   }
 
-  // ZK-SNARK Mathematical Verification Handler
-  const handleVerifyZkProof = async () => {
-    setIsVerifyingZk(true)
-    setTimeout(() => {
-      setZkVerified(true)
-      setIsVerifyingZk(false)
-    }, 450)
-  }
 
   // Cross-City Federation Handlers
   const handlePublishToFederation = async () => {
@@ -778,7 +767,7 @@ export const CampaignsPage: React.FC = () => {
           </div>
           <h1 id="heading-campaigns">Threat Campaigns & Break-Glass Escrow</h1>
           <p className="subhead-desc">
-            Graph-based threat correlation, Shamir 2-of-3 escrow unmasking, Groth16 ZK-SNARK verifier, Salesforce HASSH analysis, and Cross-City decentralized threat sharing.
+            Graph-based threat correlation, Shamir 2-of-3 escrow unmasking, Salesforce HASSH analysis, and Cross-City decentralized threat sharing.
           </p>
         </div>
 
@@ -925,16 +914,6 @@ export const CampaignsPage: React.FC = () => {
           </span>
         </button>
 
-        <button
-          type="button"
-          className={`subtab-btn ${activeSubTab === 'zk_snark' ? 'active' : ''}`}
-          onClick={() => setActiveSubTab('zk_snark')}
-        >
-          <span>ZK-SNARK Circuit Proof</span>
-          <span className="subtab-count" style={{ background: 'rgba(16, 185, 129, 0.25)', color: '#34d399' }}>
-            Stretch
-          </span>
-        </button>
 
         <button
           type="button"
@@ -1446,7 +1425,7 @@ export const CampaignsPage: React.FC = () => {
                     </strong>
                   </div>
                   <span className="code-pill" style={{ color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.4)' }}>
-                    ZK Quorum Verified (Groth16)
+                    Shamir 2-of-3 Quorum Verified
                   </span>
                 </div>
 
@@ -1688,101 +1667,6 @@ export const CampaignsPage: React.FC = () => {
         </div>
       )}
 
-      {/* =================================================================== */}
-      {/* STRETCH TAB 5: ZK-SNARK GROTH16 CIRCUIT PROOF VERIFIER              */}
-      {/* =================================================================== */}
-      {activeSubTab === 'zk_snark' && (
-        <div className="zk-view-grid">
-          <div className="zk-card">
-            <div>
-              <span className="field-label">Groth16 Zero-Knowledge Circuit</span>
-              <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>AegisEscrowQuorumVerifier.circom</h3>
-              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.3rem' }}>
-                Mathematically proves that a quorum of at least 2 municipal custodians signed without revealing which custodians signed, and constrains unlock to a single 10-minute camera window.
-              </p>
-            </div>
-
-            <div className="curve-point-box">
-              <span className="field-label" style={{ color: '#38bdf8' }}>π_A ∈ G1 (Elliptic Curve Point)</span>
-              <span>X: 0x19a4f89102847192837190283419082390182390182309182093810293810293</span>
-              <span>Y: 0x08b2910398102938102938102938102938102938102938102938102938102938</span>
-            </div>
-
-            <div className="curve-point-box">
-              <span className="field-label" style={{ color: '#38bdf8' }}>π_B ∈ G2 (Twisted Curve Point)</span>
-              <span>X: [0x28a1093810293810..., 0x11b3091820398120...]</span>
-              <span>Y: [0x09f4019283019823..., 0x14c2091820391820...]</span>
-            </div>
-
-            <div className="curve-point-box">
-              <span className="field-label" style={{ color: '#38bdf8' }}>π_C ∈ G1 (Proof Wire)</span>
-              <span>X: 0x33f1092830192830192830192830192830192830192830192830192830192830</span>
-              <span>Y: 0x12a8091820391820391820391820391820391820391820391820391820391820</span>
-            </div>
-
-            <div className="pairing-equation-badge">
-              <span>e(π_A, π_B) = e(α, β) · e(∑ x_i · IC_i, γ) · e(π_C, δ)</span>
-              <span style={{ fontWeight: 700 }}>BN254</span>
-            </div>
-          </div>
-
-          <div className="zk-card">
-            <div>
-              <span className="field-label">Public Signals & Verification</span>
-              <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>Proof Verification Key & Signals</h3>
-            </div>
-
-            <div className="field-group">
-              <span className="field-label">Public Input 0 (Constant Wire)</span>
-              <code>1</code>
-            </div>
-
-            <div className="field-group">
-              <span className="field-label">Public Input 1 (Camera ID Hash Commitment)</span>
-              <code>0x{hashlib_preview('CAM-04-MARKET')}</code>
-            </div>
-
-            <div className="field-group">
-              <span className="field-label">Public Input 2 (Window ID Hash Commitment)</span>
-              <code>0x{hashlib_preview('WIN-20261024-1130')}</code>
-            </div>
-
-            <div className="field-group">
-              <span className="field-label">Public Input 3 (Threshold Constant k)</span>
-              <code>2 (Shamir 2-of-3 Quorum)</code>
-            </div>
-
-            <div style={{ marginTop: 'auto', paddingTop: '1rem' }}>
-              {zkVerified && (
-                <div
-                  style={{
-                    padding: '0.75rem 1rem',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    border: '1px solid rgba(16, 185, 129, 0.4)',
-                    color: '#34d399',
-                    marginBottom: '0.75rem',
-                    fontSize: '0.825rem',
-                    fontWeight: 600,
-                  }}
-                >
-                  ✓ ZK-SNARK PROOF MATHEMATICALLY VERIFIED — Quorum validated without identity leakage.
-                </div>
-              )}
-
-              <button
-                type="button"
-                className="btn-drill btn-drill-c"
-                style={{ width: '100%', justifyContent: 'center' }}
-                onClick={handleVerifyZkProof}
-                disabled={isVerifyingZk}
-              >
-                <span>{isVerifyingZk ? 'Evaluating Bilinear Pairings...' : 'Verify ZK-SNARK Mathematical Proof'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* =================================================================== */}
       {/* STRETCH TAB 6: CROSS-CITY THREAT FEDERATION (SMART CONTRACT)        */}
