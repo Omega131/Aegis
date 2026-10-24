@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
+import { api } from '../api/client'
 
-export type NavTab = 'cameras' | 'decoy' | 'campaigns'
+export type NavTab = 'city' | 'console' | 'cameras' | 'decoy' | 'campaigns'
 
 interface NavbarProps {
   activeTab: NavTab
@@ -11,25 +12,24 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking')
 
   useEffect(() => {
+    let mounted = true
     const checkHealth = async () => {
       try {
-        const res = await fetch('http://localhost:8000/health', { signal: AbortSignal.timeout(2000) })
-        if (res.ok) {
-          const data = await res.json()
-          if (data.status === 'ok') {
-            setBackendStatus('online')
-            return
-          }
+        const health = await api.getHealth()
+        if (mounted) {
+          setBackendStatus(health.status === 'ok' ? 'online' : 'offline')
         }
-        setBackendStatus('offline')
       } catch {
-        setBackendStatus('offline')
+        if (mounted) setBackendStatus('offline')
       }
     }
 
     checkHealth()
-    const timer = setInterval(checkHealth, 5000)
-    return () => clearInterval(timer)
+    const timer = setInterval(checkHealth, 4000)
+    return () => {
+      mounted = false
+      clearInterval(timer)
+    }
   }, [])
 
   return (
@@ -44,18 +44,36 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
         </div>
         <div className="brand-info">
           <span className="brand-name">AegisMirage</span>
-          <span className="scaffold-tag">Phase 1</span>
+          <span className="scaffold-tag">Living Defense</span>
         </div>
       </div>
 
       <nav className="navbar-nav" aria-label="Main Navigation">
         <button
           type="button"
+          id="nav-city"
+          className={`nav-item ${activeTab === 'city' ? 'active' : ''}`}
+          onClick={() => onSelectTab('city')}
+        >
+          <span className="nav-label">🏙️ Living City</span>
+        </button>
+
+        <button
+          type="button"
+          id="nav-console"
+          className={`nav-item ${activeTab === 'console' ? 'active' : ''}`}
+          onClick={() => onSelectTab('console')}
+        >
+          <span className="nav-label">🪞 Mirror Console</span>
+        </button>
+
+        <button
+          type="button"
           id="nav-cameras"
           className={`nav-item ${activeTab === 'cameras' ? 'active' : ''}`}
           onClick={() => onSelectTab('cameras')}
         >
-          <span className="nav-label">Cameras</span>
+          <span className="nav-label">📷 Cameras</span>
         </button>
 
         <button
@@ -64,7 +82,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
           className={`nav-item ${activeTab === 'decoy' ? 'active' : ''}`}
           onClick={() => onSelectTab('decoy')}
         >
-          <span className="nav-label">Decoy Activity</span>
+          <span className="nav-label">🪤 Decoy Activity</span>
         </button>
 
         <button
@@ -73,7 +91,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
           className={`nav-item ${activeTab === 'campaigns' ? 'active' : ''}`}
           onClick={() => onSelectTab('campaigns')}
         >
-          <span className="nav-label">Campaigns</span>
+          <span className="nav-label">🛡️ Threat Intel</span>
         </button>
       </nav>
 

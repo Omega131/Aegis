@@ -27,6 +27,7 @@ import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 import decoy
 import dev_harness
@@ -278,9 +279,26 @@ def health() -> Dict[str, Any]:
     }
 
 
+# =============================================================================
+# Static Files & Dashboard Mounting
+# =============================================================================
+
+dashboard_dist_dir = os.path.join(os.path.dirname(__file__), "dashboard", "dist")
+if os.path.isdir(dashboard_dist_dir):
+    app.mount("/app", StaticFiles(directory=dashboard_dist_dir, html=True), name="dashboard_app")
+    print(f"[*] Mounted integrated frontend production bundle from {dashboard_dist_dir} at /app")
+
+supplied_frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "AegisMirage-Frontend"))
+if os.path.isdir(supplied_frontend_dir):
+    app.mount("/living-city-standalone", StaticFiles(directory=supplied_frontend_dir, html=True), name="living_city_standalone")
+    print(f"[*] Mounted supplied reference frontend from {supplied_frontend_dir} at /living-city-standalone")
+
+
 @app.get("/", include_in_schema=False)
 def root_redirect():
-    """Redirect root to dashboard info or cameras."""
+    """Redirect root to integrated application or cameras."""
+    if os.path.isdir(dashboard_dist_dir):
+        return RedirectResponse(url="/app/")
     return RedirectResponse(url="/api/cameras")
 
 

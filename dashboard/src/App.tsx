@@ -1,11 +1,21 @@
 import { useState } from 'react'
 import { Layout, type NavTab } from './shell'
+import { LivingCityPage } from './pages/city'
+import { ConsolePage } from './pages/console'
 import { CamerasPage } from './pages/cameras'
 import { DecoyPage } from './pages/decoy'
 import { CampaignsPage } from './pages/campaigns'
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<NavTab>('cameras')
+  const [activeTab, setActiveTab] = useState<NavTab>('city')
+
+  if (activeTab === 'city') {
+    return <LivingCityPage onNavigateTab={setActiveTab} />
+  }
+
+  if (activeTab === 'console') {
+    return <ConsolePage onNavigateTab={setActiveTab} />
+  }
 
   const renderActivePage = () => {
     switch (activeTab) {
@@ -16,7 +26,7 @@ export function App() {
       case 'campaigns':
         return <CampaignsPage />
       default:
-        return <CamerasPage />
+        return <LivingCityPage onNavigateTab={setActiveTab} />
     }
   }
 
