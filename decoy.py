@@ -375,9 +375,47 @@ def get_session_by_id(session_id: str) -> Optional[schema.DecoySessionEvent]:
     return _decoy_manager.get_session_event(session_id)
 
 
+def flag_honeytoken_hit(session_id: str) -> Optional[schema.DecoySessionEvent]:
+    """Flag a session as having tripped a honeytoken trap."""
+    if session_id in _decoy_manager.sessions:
+        _decoy_manager.sessions[session_id].honeytoken_hit = True
+        return _decoy_manager.sessions[session_id].to_event()
+    return None
+
+
 def reset_decoy_state() -> None:
     """Reset all decoy sessions."""
     _decoy_manager.reset()
+
+
+async def start_ssh_decoy(host: str = "127.0.0.1", port: int = 2222) -> None:
+    """Start the real asyncssh decoy server listener."""
+    import ssh_decoy
+    controller = ssh_decoy.get_ssh_controller()
+    controller.host = host
+    controller.port = port
+    await controller.start()
+
+
+async def stop_ssh_decoy() -> None:
+    """Stop the real asyncssh decoy server listener."""
+    import ssh_decoy
+    await ssh_decoy.get_ssh_controller().stop()
+
+
+async def start_mqtt_decoy(host: str = "127.0.0.1", port: int = 1883) -> None:
+    """Start the real MQTT 3.1.1 decoy protocol server."""
+    import mqtt_decoy
+    server = mqtt_decoy.get_mqtt_server()
+    server.host = host
+    server.port = port
+    await server.start()
+
+
+async def stop_mqtt_decoy() -> None:
+    """Stop the real MQTT decoy protocol server."""
+    import mqtt_decoy
+    await mqtt_decoy.get_mqtt_server().stop()
 
 
 # =============================================================================

@@ -10,3 +10,8 @@ __pycache__/
 dashboard/node_modules/
 dashboard/dist/
 .DS_Store
+
+# Host keys & certificates (kept out of Git)
+*.key
+*_host_key*
+*.pem

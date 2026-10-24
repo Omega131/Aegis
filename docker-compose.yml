@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Operator Service: Single-process FastAPI backend + management API
+  aegis-operator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      # Bound to loopback only by default for secure local demo
+      - "127.0.0.1:8000:8000"
+    user: "10001:10001"
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    restart: unless-stopped
+    networks:
+      - aegis-net
+
+  # Decoy Service: Phantom Twin Honeypot (SSH on 2222 + MQTT on 1883)
+  # Separated from operator services
+  aegis-decoy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "run_decoys.py", "2222", "1883"]
+    ports:
+      # Bound to loopback only by default
+      - "127.0.0.1:2222:2222"
+      - "127.0.0.1:1883:1883"
+    user: "10001:10001"
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    restart: unless-stopped
+    networks:
+      - aegis-net
+
+networks:
+  aegis-net:
+    driver: bridge
