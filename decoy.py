@@ -793,7 +793,9 @@ def flag_honeytoken_hit(session_id: str) -> Optional[schema.DecoySessionEvent]:
     """Flag a session as having tripped a honeytoken trap."""
     if session_id in _decoy_manager.sessions:
         _decoy_manager.sessions[session_id].honeytoken_hit = True
-        return _decoy_manager.sessions[session_id].to_event()
+        event = _decoy_manager.sessions[session_id].to_event()
+        _decoy_manager._notify_listeners(event)
+        return event
     return None
 
 
@@ -1376,6 +1378,142 @@ async def get_decoy_provenance_endpoint(session_id: str) -> Dict[str, Any]:
     if not provenance:
         raise HTTPException(status_code=404, detail=f"No provenance record found for session '{session_id}'")
     return provenance
+
+
+# =============================================================================
+# Person B Operator-Facing Read Endpoints
+# =============================================================================
+
+def check_operator_auth(request: Request) -> bool:
+    """
+    Operator API Authentication Guard.
+    
+    Status in repo: The upstream shared skeleton provides no operator authentication.
+    Development arrangement:
+    1. If an 'X-Operator-Token' or 'Authorization: Bearer <token>' header is present,
+       it is validated against accepted operator tokens.
+    2. In local-only development mode, callers from loopback/trusted development peers
+       (127.0.0.1, ::1, localhost, testclient) are permitted with logged provenance.
+    3. Remote callers without valid credentials are strictly rejected with 403 Forbidden.
+    4. Operator records are NEVER exposed on the public decoy protocol listeners (SSH 2222, MQTT 1883, fake web).
+    """
+    token = request.headers.get("X-Operator-Token") or request.headers.get("Authorization", "")
+    if token:
+        clean_tok = token.replace("Bearer ", "").strip()
+        if clean_tok in ("dev-operator-token-2026", "SmartCity2026!", "aegis-operator-key"):
+            return True
+        raise HTTPException(status_code=401, detail="Invalid operator authorization credentials")
+
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    if client_ip in ("127.0.0.1", "::1", "localhost", "testclient"):
+        return True
+
+    raise HTTPException(
+        status_code=403,
+        detail="Operator endpoint restricted: centralized operator auth is absent; only local-only development access is permitted.",
+    )
+
+
+@decoy_router.get("/operator/telemetry")
+async def get_operator_telemetry(request: Request) -> Dict[str, Any]:
+    """
+    Operator-facing read endpoint serving the React dashboard.
+    Returns:
+    - active decoy sessions with observed source addresses, service, logins, commands,
+      honeytoken flags, malware hashes, candidate C2s, and file evidence records
+    - correlated gateway destination, score, and reason for each session
+    - gateway routing metrics and recent decisions
+    """
+    check_operator_auth(request)
+    
+    import gateway
+    
+    session_items: List[Dict[str, Any]] = []
+    recent_decisions = gateway.get_all_decisions()
+    # Build map of most recent decision per source IP
+    ip_to_decision: Dict[str, schema.RouteDecision] = {}
+    for d in recent_decisions:
+        ip_to_decision[d.source_ip] = d
+
+    for session in _decoy_manager.sessions.values():
+        event = session.to_event()
+        # Find or compute gateway decision for session source_ip
+        gw_dec = ip_to_decision.get(session.source_ip)
+        if not gw_dec:
+            # If not in history, evaluate source_ip against gateway
+            gw_dec = gateway.evaluate_route(session.source_ip, service=session.service)
+        
+        session_items.append({
+            "session_id": session.session_id,
+            "source_ip": session.source_ip,
+            "service": session.service,
+            "failed_logins": session.failed_logins,
+            "commands": list(session.commands),
+            "honeytoken_hit": session.honeytoken_hit,
+            "malware_hash": event.malware_hash,
+            "c2_address": event.c2_address,
+            "created_at": session.created_at,
+            "last_active": session.last_active,
+            "gateway_decision": {
+                "destination": gw_dec.destination,
+                "score": gw_dec.score,
+                "reason": gw_dec.reason,
+            },
+            "file_submissions": [s.to_dict() for s in session.file_submissions],
+            "referenced_urls": list(session.referenced_urls),
+            "referenced_files": list(session.referenced_files),
+        })
+
+    gw_summary = gateway.get_gateway_summary()
+
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+        "operator_mode": "local_dev",
+        "sessions_count": len(session_items),
+        "sessions": session_items,
+        "gateway_summary": gw_summary,
+        "epistemic_disclaimer": (
+            "malware_hash is an empirical SHA-256 digest of received bytes, not proof of malice. "
+            "c2_address is a static candidate indicator, not verified C2 infrastructure. "
+            "honeytoken_hit is an observed interaction with deception bait, not proof of human identity."
+        ),
+    }
+
+
+@decoy_router.get("/operator/sessions/{session_id}")
+async def get_operator_session_detail(session_id: str, request: Request) -> Dict[str, Any]:
+    """Operator-facing endpoint to inspect a single session in detail."""
+    check_operator_auth(request)
+    session = _decoy_manager.sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    
+    import gateway
+    event = session.to_event()
+    gw_dec = gateway.evaluate_route(session.source_ip, service=session.service)
+    
+    return {
+        "session_id": session.session_id,
+        "source_ip": session.source_ip,
+        "service": session.service,
+        "failed_logins": session.failed_logins,
+        "commands": list(session.commands),
+        "honeytoken_hit": session.honeytoken_hit,
+        "malware_hash": event.malware_hash,
+        "c2_address": event.c2_address,
+        "created_at": session.created_at,
+        "last_active": session.last_active,
+        "gateway_decision": {
+            "destination": gw_dec.destination,
+            "score": gw_dec.score,
+            "reason": gw_dec.reason,
+        },
+        "file_submissions": [s.to_dict() for s in session.file_submissions],
+        "referenced_urls": list(session.referenced_urls),
+        "referenced_files": list(session.referenced_files),
+        "provenance": session.get_provenance_summary(),
+    }
 
 
 @decoy_router.post("/sessions/{session_id}/disconnect")
