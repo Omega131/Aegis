@@ -32,6 +32,7 @@ export const CameraEventFeed: React.FC<CameraEventFeedProps> = ({
       case 'camera_blinded':
       case 'camera_frozen':
         return 'pill-anomaly'
+      case 'camera_recovered':
       case 'recovered':
       case 'node_start':
         return 'pill-recovered'

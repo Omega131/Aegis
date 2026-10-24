@@ -12,6 +12,7 @@ import decoy
 import gateway
 import intel
 import escrow
+import dev_harness
 
 # Storage: local filesystem + a single SQLite file creation
 DB_PATH = Path("aegismirage.db")
@@ -80,6 +81,11 @@ decoy.register_session_listener(on_decoy_session_event)
 @app.on_event("startup")
 def on_app_startup() -> None:
     print("[MAIN] Starting AegisMirage unified pipeline...")
+    try:
+        if hasattr(dev_harness, "seed_development_fixtures"):
+            dev_harness.seed_development_fixtures()
+    except Exception as exc:
+        print(f"[MAIN-WARN] Decoy fixtures seed warning: {exc}")
     try:
         edge.start_edge()
     except Exception as exc:

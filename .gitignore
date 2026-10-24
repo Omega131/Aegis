@@ -22,5 +22,7 @@ decoy_uploads/
 
 # Models, media artifacts & edge local storage
 *.onnx
+!face_detection_yunet_2023mar.onnx
 *.mp4
+!test_video.mp4
 edge_storage/

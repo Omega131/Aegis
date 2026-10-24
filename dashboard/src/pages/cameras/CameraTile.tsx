@@ -36,21 +36,21 @@ export const CameraTile: React.FC<CameraTileProps> = ({
     switch (camera.health) {
       case 'healthy':
         return 'health-healthy'
-      case 'degraded':
-        return 'health-degraded'
+      case 'warning':
+        return 'health-warning'
       case 'offline':
       default:
         return 'health-offline'
     }
   }
 
-  // Step 4: Compute status badge presentation
+  // Step 4: Compute status/health badge presentation (green=healthy, yellow=warning/anomaly, red=offline)
   const getStatusBadge = (): { label: string; className: string } => {
-    if (camera.status === 'anomaly') {
-      return { label: 'ANOMALY', className: 'badge-anomaly' }
+    if (camera.status === 'anomaly' || camera.health === 'warning') {
+      return { label: 'WARNING', className: 'badge-warning' }
     }
-    if (camera.status === 'running') {
-      return { label: 'LIVE', className: 'badge-live' }
+    if (camera.status === 'running' && camera.health === 'healthy') {
+      return { label: 'HEALTHY', className: 'badge-healthy' }
     }
     return { label: 'OFFLINE', className: 'badge-offline' }
   }

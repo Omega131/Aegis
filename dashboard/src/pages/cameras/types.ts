@@ -7,7 +7,15 @@
 export const API_BASE = 'http://localhost:8000'
 
 export type CameraStatus = 'running' | 'stopped' | 'anomaly'
-export type CameraHealth = 'healthy' | 'degraded' | 'offline'
+export type CameraHealth = 'healthy' | 'warning' | 'offline'
+
+export type CameraEventType =
+  | 'node_start'
+  | 'node_stop'
+  | 'face_blurred'
+  | 'camera_blinded'
+  | 'camera_frozen'
+  | 'camera_recovered'
 
 export interface CameraNodeStatus {
   camera_id: string
@@ -21,6 +29,6 @@ export interface CameraEvent {
   camera_id: string
   window_id: string
   timestamp: string
-  event_type: string
+  event_type: CameraEventType | string
   blurred: boolean
 }

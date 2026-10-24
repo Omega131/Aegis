@@ -29,6 +29,16 @@ import numpy as np
 # Shared schema contract for camera events
 from schema import CameraEvent
 
+# Explicit public API exports for other modules (prevent wildcard pollution)
+__all__ = [
+    "router",
+    "start_edge",
+    "stop_edge",
+    "get_encrypted_footage",
+    "decrypt_footage",
+    "get_window_key_for_escrow",
+]
+
 
 # =============================================================================
 # 1. CONFIGURATION
@@ -75,6 +85,9 @@ BLUR_PIXEL_BLOCKS = 8
 # Expansion factor for the bounding box (0.30 = 30% expansion on all sides).
 # Covers hair edge, forehead, jawline, ears and glasses.
 BOX_EXPANSION = 0.30
+
+# Number of consecutive missed-detection frames to keep blurring the last known face boxes
+BLUR_HOLD_FRAMES = 5
 
 # -----------------------------------------------------------------------------
 # Anomaly Detection Thresholds (Tuning Constants)
@@ -259,20 +272,71 @@ def _get_face_detector() -> cv2.FaceDetectorYN:
     return _FACE_DETECTOR
 
 
+# Global blur hold tracking state when no dedicated tracker dict is supplied
+_GLOBAL_BLUR_STATE: dict[str, Any] = {
+    "boxes": [],
+    "hold_remaining": 0,
+}
+_GLOBAL_BLUR_LOCK = threading.Lock()
+
+
+def _apply_face_blur(
+    target_img: np.ndarray,
+    orig_box: tuple[int, int, int, int],
+) -> None:
+    """
+    Applies strong two-stage irreversible privacy blurring (pixelation + Gaussian blur)
+    to the given bounding box (x, y, w, h) on target_img in-place.
+    """
+    img_height, img_width = target_img.shape[:2]
+    orig_x, orig_y, orig_w, orig_h = orig_box
+    pad_w = int(orig_w * BOX_EXPANSION)
+    pad_h = int(orig_h * BOX_EXPANSION)
+
+    blur_x = max(0, orig_x - pad_w)
+    blur_y = max(0, orig_y - pad_h)
+    blur_w = min(orig_w + 2 * pad_w, img_width - blur_x)
+    blur_h = min(orig_h + 2 * pad_h, img_height - blur_y)
+
+    if blur_w <= 4 or blur_h <= 4:
+        return
+
+    face_roi = target_img[blur_y : blur_y + blur_h, blur_x : blur_x + blur_w]
+    small_roi = cv2.resize(
+        face_roi,
+        (BLUR_PIXEL_BLOCKS, BLUR_PIXEL_BLOCKS),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    pixelated_roi = cv2.resize(
+        small_roi,
+        (blur_w, blur_h),
+        interpolation=cv2.INTER_NEAREST,
+    )
+    kernel_size = min(31, max(7, (min(blur_w, blur_h) // 6) * 2 + 1))
+    unrecognizable_roi = cv2.GaussianBlur(pixelated_roi, (kernel_size, kernel_size), 0)
+    target_img[blur_y : blur_y + blur_h, blur_x : blur_x + blur_w] = unrecognizable_roi
+
+
 def detect_and_blur_faces(
     frame: np.ndarray,
+    blur_state: dict[str, Any] | None = None,
 ) -> tuple[np.ndarray, list[tuple[np.ndarray, tuple[int, int, int, int]]]]:
     """
     Detects human faces in a BGR OpenCV frame using OpenCV YuNet,
     extracts original crops, and applies strong privacy blur to ensure
     no unblurred face is returned.
 
+    Safety: If face detection is missed for a frame or two, keeps blurring
+    the last known face boxes for BLUR_HOLD_FRAMES (5) frames to guarantee
+    a brief miss never shows an unblurred face.
+
     Parameters:
         frame: Input BGR image (OpenCV numpy array)
+        blur_state: Optional per-node state tracking dict for blur holding.
 
     Returns:
         tuple (blurred_frame, face_crops):
-            - blurred_frame: A copy of the frame with all detected faces blurred.
+            - blurred_frame: A copy of the frame with all detected/held faces blurred.
             - face_crops: List of tuples (crop_image, (x, y, w, h)) containing
               the ORIGINAL unblurred face regions and their bounding boxes.
     """
@@ -286,6 +350,14 @@ def detect_and_blur_faces(
     if frame is None or frame.size == 0:
         return blurred_frame, face_crops
 
+    # Select state tracker for blur holding
+    if blur_state is None:
+        state = _GLOBAL_BLUR_STATE
+        lock = _GLOBAL_BLUR_LOCK
+    else:
+        state = blur_state
+        lock = None
+
     # Step 4: Get image dimensions (height, width, channels)
     img_height, img_width = frame.shape[:2]
 
@@ -298,69 +370,69 @@ def detect_and_blur_faces(
         # Step 7: Run YuNet detector on BGR frame (returns retval, faces)
         retval, faces = detector.detect(frame)
 
+    current_boxes: list[tuple[int, int, int, int]] = []
+
     # Step 8: Check if any faces were detected
-    if faces is None or len(faces) == 0:
-        return blurred_frame, face_crops
+    if faces is not None and len(faces) > 0:
+        for face in faces:
+            # First 4 values are bounding box: x, y, width, height as floats
+            raw_x = int(face[0])
+            raw_y = int(face[1])
+            raw_w = int(face[2])
+            raw_h = int(face[3])
 
-    # Step 9: Loop through every detected face
-    for face in faces:
-        # First 4 values are bounding box: x, y, width, height as floats
-        raw_x = int(face[0])
-        raw_y = int(face[1])
-        raw_w = int(face[2])
-        raw_h = int(face[3])
+            orig_x = max(0, raw_x)
+            orig_y = max(0, raw_y)
+            orig_w = min(raw_w, img_width - orig_x)
+            orig_h = min(raw_h, img_height - orig_y)
 
-        # Step 9a: Original (unexpanded) box for unblurred crop extraction
-        orig_x = max(0, raw_x)
-        orig_y = max(0, raw_y)
-        orig_w = min(raw_w, img_width - orig_x)
-        orig_h = min(raw_h, img_height - orig_y)
+            if orig_w <= 4 or orig_h <= 4:
+                continue
 
-        # Skip invalid or tiny zero-area bounding boxes
-        if orig_w <= 4 or orig_h <= 4:
-            continue
+            # Extract the ORIGINAL unblurred face crop from the original frame (for encryption)
+            original_crop = frame[orig_y : orig_y + orig_h, orig_x : orig_x + orig_w].copy()
+            box_tuple = (orig_x, orig_y, orig_w, orig_h)
+            face_crops.append((original_crop, box_tuple))
+            current_boxes.append(box_tuple)
 
-        # Extract the ORIGINAL unblurred face crop from the original frame (for encryption)
-        original_crop = frame[orig_y : orig_y + orig_h, orig_x : orig_x + orig_w].copy()
-        face_crops.append((original_crop, (orig_x, orig_y, orig_w, orig_h)))
+            # Apply strong privacy blur to detected face
+            _apply_face_blur(blurred_frame, box_tuple)
 
-        # Step 9b: Expanded bounding box for blurring (expanded by BOX_EXPANSION on all sides)
-        # This covers forehead, hairline, ears, glasses, and jawline
-        pad_w = int(orig_w * BOX_EXPANSION)
-        pad_h = int(orig_h * BOX_EXPANSION)
+        # Update blur hold state with freshly detected boxes
+        def _save_boxes():
+            state["boxes"] = list(current_boxes)
+            state["hold_remaining"] = BLUR_HOLD_FRAMES
 
-        blur_x = max(0, orig_x - pad_w)
-        blur_y = max(0, orig_y - pad_h)
-        blur_w = min(orig_w + 2 * pad_w, img_width - blur_x)
-        blur_h = min(orig_h + 2 * pad_h, img_height - blur_y)
+        if lock is not None:
+            with lock:
+                _save_boxes()
+        else:
+            _save_boxes()
 
-        if blur_w <= 4 or blur_h <= 4:
-            continue
-
-        # Step 9c: Apply strong irreversible pixelation (shrink to BLUR_PIXEL_BLOCKS x BLUR_PIXEL_BLOCKS)
-        face_roi = blurred_frame[blur_y : blur_y + blur_h, blur_x : blur_x + blur_w]
-
-        small_roi = cv2.resize(
-            face_roi,
-            (BLUR_PIXEL_BLOCKS, BLUR_PIXEL_BLOCKS),
-            interpolation=cv2.INTER_LINEAR,
-        )
-        pixelated_roi = cv2.resize(
-            small_roi,
-            (blur_w, blur_h),
-            interpolation=cv2.INTER_NEAREST,
-        )
-
-        # Step 9d: Follow with Gaussian blur pass on top of pixelation to make it completely irreversible
-        kernel_size = min(31, max(7, (min(blur_w, blur_h) // 6) * 2 + 1))
-        unrecognizable_roi = cv2.GaussianBlur(pixelated_roi, (kernel_size, kernel_size), 0)
-
-        # Step 9e: Replace the expanded face area in blurred_frame with the blurred ROI
-        blurred_frame[blur_y : blur_y + blur_h, blur_x : blur_x + blur_w] = unrecognizable_roi
-
-    # Print event summary if faces were processed
-    if len(face_crops) > 0:
         print(f"[EDGE-CV] Processed {len(face_crops)} face(s) via YuNet: crops in memory, frame blurred.")
+    else:
+        # Step 9: Face detection missed — safety hold blur for BLUR_HOLD_FRAMES
+        held_boxes: list[tuple[int, int, int, int]] = []
+
+        def _get_held():
+            nonlocal held_boxes
+            remaining = state.get("hold_remaining", 0)
+            if remaining > 0:
+                state["hold_remaining"] = remaining - 1
+                held_boxes = list(state.get("boxes", []))
+            else:
+                state["boxes"] = []
+
+        if lock is not None:
+            with lock:
+                _get_held()
+        else:
+            _get_held()
+
+        if len(held_boxes) > 0:
+            for h_box in held_boxes:
+                _apply_face_blur(blurred_frame, h_box)
+            print(f"[EDGE-CV-SAFETY] Applied safety hold blur on {len(held_boxes)} last-known face box(es).")
 
     # Return the fully blurred frame and the extracted unblurred crops
     return blurred_frame, face_crops
@@ -697,6 +769,9 @@ def check_anomalies(
 
     # Step 4: Check for Camera Blinding
     is_blinded = False
+    last_state = state.get("last_state", "normal")
+    in_blinded_state = (last_state == "camera_blinded")
+
     if len(brightness_history) >= 5:
         rolling_avg = float(np.mean(brightness_history))
         if rolling_avg >= BLINDING_MIN_BASELINE:
@@ -704,17 +779,32 @@ def check_anomalies(
             if drop_ratio >= BLINDING_DROP_RATIO:
                 is_blinded = True
 
-    # Step 5: Update the brightness history with current frame's brightness
-    if isinstance(brightness_history, collections.deque):
-        brightness_history.append(curr_brightness)
-    elif isinstance(brightness_history, list):
-        brightness_history.append(curr_brightness)
-        if len(brightness_history) > BRIGHTNESS_HISTORY_LEN:
-            brightness_history.pop(0)
+    # If already in blinded state, check whether current brightness is still dropped relative to preserved baseline
+    if in_blinded_state and not is_blinded and len(brightness_history) >= 5:
+        rolling_avg = float(np.mean(brightness_history))
+        if rolling_avg >= BLINDING_MIN_BASELINE:
+            drop_ratio = (rolling_avg - curr_brightness) / rolling_avg
+            if drop_ratio >= BLINDING_DROP_RATIO:
+                is_blinded = True
+
+    # Step 5: Update the brightness history with current frame's brightness ONLY when not blinded
+    # Preserving rolling baseline brightness ensures blinding does not normalize itself into a false freeze
+    if not is_blinded and not in_blinded_state:
+        if isinstance(brightness_history, collections.deque):
+            brightness_history.append(curr_brightness)
+        elif isinstance(brightness_history, list):
+            brightness_history.append(curr_brightness)
+            if len(brightness_history) > BRIGHTNESS_HISTORY_LEN:
+                brightness_history.pop(0)
 
     # Step 6: Check for Camera Freezing (Difference between consecutive frames)
+    # CRITICAL FIX 1a: Skip the freeze check while the node is in the blinded state,
+    # so only camera_blinded fires, followed by one recovery event when it ends.
     is_frozen = False
-    if prev_frame is not None and prev_frame.shape == curr_frame.shape:
+    if is_blinded or in_blinded_state:
+        state["frozen_count"] = 0
+        is_frozen = False
+    elif prev_frame is not None and prev_frame.shape == curr_frame.shape:
         if len(prev_frame.shape) == 3:
             prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
         else:
@@ -883,6 +973,12 @@ class CameraNode:
         )
         self.prev_frame: np.ndarray | None = None
 
+        # Step 5b: Face blur hold tracking state for privacy safety during missed frames
+        self.blur_state: dict[str, Any] = {
+            "boxes": [],
+            "hold_remaining": 0,
+        }
+
         # Simulation override for live demo drills ('blind', 'freeze', or None)
         self._simulation_override: str | None = None
         self._frozen_frame_cache: np.ndarray | None = None
@@ -933,18 +1029,19 @@ class CameraNode:
     @property
     def health(self) -> str:
         """
-        Returns the health indicator based on recent frame processing activity:
-        'healthy', 'degraded', or 'offline'. Thread-safe.
+        Returns the health indicator based on operational status:
+        'healthy' when running normally, 'warning' during an anomaly,
+        and 'offline' when stopped. Thread-safe.
         """
         with self._lock:
             if not self.is_running:
                 return "offline"
 
-            # If a frame was processed within the last 3 seconds, node is healthy
-            if time.time() - self.last_frame_time < 3.0:
-                return "healthy"
+            current_anomaly = self.anomaly_state.get("last_state", "normal")
+            if current_anomaly in ("camera_blinded", "camera_frozen"):
+                return "warning"
 
-            return "degraded"
+            return "healthy"
 
     def get_summary(self) -> dict[str, Any]:
         """
@@ -957,9 +1054,12 @@ class CameraNode:
             if not running:
                 node_status = "stopped"
                 node_health = "offline"
+            elif current_anomaly in ("camera_blinded", "camera_frozen"):
+                node_status = "anomaly"
+                node_health = "warning"
             else:
-                node_status = "anomaly" if current_anomaly in ("camera_blinded", "camera_frozen") else "running"
-                node_health = "healthy" if (time.time() - self.last_frame_time < 3.0) else "degraded"
+                node_status = "running"
+                node_health = "healthy"
 
             return {
                 "camera_id": self.camera_id,
@@ -1132,8 +1232,8 @@ class CameraNode:
                     if sim_frozen_frame is not None:
                         frame = sim_frozen_frame.copy()
 
-                # Step 3: Run face detection and strong privacy blurring
-                blurred_frame, face_crops = detect_and_blur_faces(frame)
+                # Step 3: Run face detection and strong privacy blurring (with safety hold)
+                blurred_frame, face_crops = detect_and_blur_faces(frame, blur_state=self.blur_state)
 
                 # Step 4: Encrypt and store all extracted face crops
                 current_window = get_window_id()
@@ -1168,10 +1268,10 @@ class CameraNode:
                     with self._lock:
                         self.last_event = anomaly
                 elif anomaly == "camera_recovered":
-                    recovered_event = make_event(self.camera_id, "recovered", blurred=False)
+                    recovered_event = make_event(self.camera_id, "camera_recovered", blurred=False)
                     emit_event(recovered_event)
                     with self._lock:
-                        self.last_event = "recovered"
+                        self.last_event = "camera_recovered"
 
                 # Step 8: Update latest BLURRED frame in memory (raw faces are never exposed)
                 with self._lock:
@@ -1243,7 +1343,7 @@ class EdgeMesh:
         Format: list of dicts with keys:
           - camera_id
           - status ("running", "stopped", "anomaly")
-          - health ("healthy", "degraded", "offline")
+          - health ("healthy", "warning", "offline")
           - last_event
           - faces_blurred_count
         Thread-safe snapshot.
@@ -1523,6 +1623,30 @@ if __name__ == "__main__":
     for idx, (crop_img, bbox) in enumerate(detected_crops):
         stored_hash = encrypt_and_store_crop(test_camera_id, test_window_id, crop_img)
         print(f"[TEST 2] Encrypted & stored face #{idx} under hash: {stored_hash[:8]}...")
+
+    # Test face blur safety hold (missed frame blurring for BLUR_HOLD_FRAMES = 5)
+    print("  -> Testing Face Blur Safety Hold (BLUR_HOLD_FRAMES = 5)...")
+    test_blur_state = {"boxes": [], "hold_remaining": 0}
+    # Frame 1: With face detected (or fallback simulated box for headless/no-webcam environments)
+    _, crops_f1 = detect_and_blur_faces(test_frame, blur_state=test_blur_state)
+    if len(crops_f1) == 0:
+        test_blur_state["boxes"] = [(200, 150, 120, 120)]
+        test_blur_state["hold_remaining"] = BLUR_HOLD_FRAMES
+    else:
+        assert test_blur_state["hold_remaining"] == BLUR_HOLD_FRAMES, "Expected hold_remaining to be reset to 5"
+        assert len(test_blur_state["boxes"]) > 0, "Expected tracked boxes to be saved"
+    # Frame 2-6: Frame without face detection (detection missed) - hold blur must be applied
+    blank_test_frame = np.full((480, 640, 3), 100, dtype=np.uint8)
+    bx, by, bw, bh = test_blur_state["boxes"][0]
+    cv2.rectangle(blank_test_frame, (bx, by), (bx + max(10, bw // 2), by + max(10, bh // 2)), (255, 255, 255), -1)
+    for hold_idx in range(BLUR_HOLD_FRAMES):
+        held_blur, held_crops = detect_and_blur_faces(blank_test_frame, blur_state=test_blur_state)
+        assert len(held_crops) == 0, "No new crops should be emitted during missed frames"
+        assert not np.array_equal(held_blur, blank_test_frame), f"Hold frame {hold_idx+1} must be blurred!"
+    # Frame 7: Hold expired
+    held_blur_expired, _ = detect_and_blur_faces(blank_test_frame, blur_state=test_blur_state)
+    assert np.array_equal(held_blur_expired, blank_test_frame), "After hold frames expire, blank frame is unblurred"
+    print(f"     [OK] Face blur safety hold verified: blurred for {BLUR_HOLD_FRAMES} consecutive missed frames.")
 
     # -------------------------------------------------------------------------
     # TEST 3: Anomaly Detection (Blinding & Freezing with State Transitions)
