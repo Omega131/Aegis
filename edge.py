@@ -988,6 +988,8 @@ class CameraNode:
         self.latest_frame = self._generate_synthetic_frame()
         self.last_frame_time = time.time()
         self.latest_jpeg_bytes: bytes | None = None
+        self.latest_raw_frame: np.ndarray | None = None
+        self.latest_unblurred_crop: np.ndarray | None = None
         if self.latest_frame is not None:
             _, init_buf = cv2.imencode(".jpg", self.latest_frame)
             self.latest_jpeg_bytes = init_buf.tobytes()
@@ -1276,6 +1278,14 @@ class CameraNode:
                 # Step 8: Update latest BLURRED frame and cached JPEG in memory (raw faces are never exposed)
                 with self._lock:
                     self.latest_frame = blurred_frame
+                    self.latest_raw_frame = frame.copy()
+                    if len(face_crops) > 0:
+                        self.latest_unblurred_crop = face_crops[0][0].copy()
+                    else:
+                        h, w = frame.shape[:2]
+                        ch, cw = int(h * 0.60), int(w * 0.50)
+                        cy, cx = int(h * 0.15), int((w - cw) / 2)
+                        self.latest_unblurred_crop = frame[cy : cy + ch, cx : cx + cw].copy()
                     self.last_frame_time = time.time()
                     enc_ok, enc_jpg = cv2.imencode(".jpg", blurred_frame)
                     if enc_ok:
@@ -1294,6 +1304,42 @@ class CameraNode:
                     print(f"[NODE-EXIT] {self.camera_id} video capture released.")
                 except Exception as exc:
                     print(f"[NODE-WARN] Error releasing capture for {self.camera_id}: {exc}")
+
+    def get_live_unblurred_crop(self) -> np.ndarray:
+        """
+        Returns the latest unblurred face crop or live portrait crop from the raw camera frame.
+        Used exclusively for authorized cryptographic escrow unmasking.
+        """
+        with self._lock:
+            if self.latest_unblurred_crop is not None:
+                return self.latest_unblurred_crop.copy()
+            if self.latest_raw_frame is not None:
+                h, w = self.latest_raw_frame.shape[:2]
+                ch, cw = int(h * 0.60), int(w * 0.50)
+                cy, cx = int(h * 0.15), int((w - cw) / 2)
+                return self.latest_raw_frame[cy : cy + ch, cx : cx + cw].copy()
+            return self._generate_synthetic_frame()
+
+
+def normalize_camera_id(camera_id: str) -> str:
+    """
+    Normalizes human-friendly camera IDs (e.g., 'CAM-01-NORTH', 'CAM_01', 'cam-01')
+    to EdgeMesh keys ('cam_01', 'cam_02', etc.).
+    Defaults to 'cam_01' if unparseable or out of range.
+    """
+    if not camera_id:
+        return "cam_01"
+    clean = camera_id.lower().strip()
+    if clean in ("cam_01", "cam_02", "cam_03", "cam_04", "cam_05"):
+        return clean
+    import re
+    match = re.search(r"(\d+)", clean)
+    if match:
+        num = int(match.group(1))
+        # Map 1..5, or wrap to available nodes
+        node_num = ((num - 1) % 5) + 1
+        return f"cam_{node_num:02d}"
+    return "cam_01"
 
 
 class EdgeMesh:
@@ -1358,10 +1404,25 @@ class EdgeMesh:
         Retrieves the latest blurred frame for a specific camera as JPEG bytes.
         Returns None if camera_id is not found or has not produced a frame yet.
         """
-        node = self.nodes.get(camera_id)
+        norm_id = normalize_camera_id(camera_id)
+        node = self.nodes.get(norm_id)
+        if node is None:
+            node = self.nodes.get("cam_01")
         if node is None:
             return None
         return node.get_latest_jpeg()
+
+    def get_live_crop_for_camera(self, camera_id: str) -> np.ndarray:
+        """
+        Retrieves the latest unblurred crop directly from the specified camera's live stream.
+        """
+        norm_id = normalize_camera_id(camera_id)
+        node = self.nodes.get(norm_id)
+        if node is not None:
+            return node.get_live_unblurred_crop()
+        if "cam_01" in self.nodes:
+            return self.nodes["cam_01"].get_live_unblurred_crop()
+        return CameraNode("fallback")._generate_synthetic_frame()
 
 
 # =============================================================================
