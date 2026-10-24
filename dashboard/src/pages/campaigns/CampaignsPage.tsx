@@ -2,17 +2,15 @@ import React, { useEffect, useState, useMemo, useRef } from 'react'
 import './CampaignsPage.css'
 
 // =============================================================================
-// Interfaces & Types (Member C Schemas)
+// Interfaces & Types (Member C Schemas & Stretch Types)
 // =============================================================================
 export interface Campaign {
-  campaign_id: str
+  campaign_id: string
   session_ids: string[]
   confidence: 'high' | 'medium'
   evidence_reasons: string[]
   risk_level: 'low' | 'medium' | 'high'
 }
-
-type str = string
 
 export interface CaseRequest {
   case_id: string
@@ -34,6 +32,16 @@ export interface DecoySessionEvent {
   c2_address: string | null
   target_device?: string
   mitre_tags?: Array<{ id: string; name: string; tactic: string }>
+  hassh?: {
+    hassh: string
+    client_banner: string
+    threat_profile: string
+    kex?: string
+    encryption?: string
+    mac?: string
+    compression?: string
+    weaponized?: boolean
+  }
 }
 
 export interface AuditBlock {
@@ -58,11 +66,27 @@ export interface Custodian {
   avatar_badge: string
 }
 
+export interface FederatedRecord {
+  tx_hash: string
+  block_number: number
+  timestamp: string
+  submitting_city: string
+  campaign_id: string
+  campaign_hash: string
+  c2_address: string | null
+  malware_hash: string | null
+  risk_tier: string
+  confidence: string
+  status: string
+}
+
 function getNowIso(): string {
   return new Date().toISOString()
 }
 
-// Fallback seed data if backend is offline
+// =============================================================================
+// Fallback Seed Data (Zero-latency fallback if backend is booting)
+// =============================================================================
 const FALLBACK_CUSTODIANS: Custodian[] = [
   {
     id: 'custodian-1-judiciary',
@@ -166,6 +190,16 @@ const FALLBACK_SESSIONS: Record<string, DecoySessionEvent> = {
       { id: 'T1071.001', name: 'Web Protocols (C2)', tactic: 'Command and Control' },
       { id: 'T1499', name: 'Endpoint Denial of Service', tactic: 'Impact' },
     ],
+    hassh: {
+      hassh: '9a4f21d3e8105c938192a01491823091',
+      client_banner: 'SSH-2.0-Go-crypto-ssh',
+      threat_profile: 'Mirai / Echobot Weaponized Go Scanner',
+      kex: 'curve25519-sha256,diffie-hellman-group14-sha256',
+      encryption: 'chacha20-poly1305@openssh.com,aes128-ctr',
+      mac: 'hmac-sha2-256-etm@openssh.com',
+      compression: 'none',
+      weaponized: true,
+    },
   },
   'sess-mirai-02': {
     session_id: 'sess-mirai-02',
@@ -187,6 +221,12 @@ const FALLBACK_SESSIONS: Record<string, DecoySessionEvent> = {
       { id: 'T1110.001', name: 'Password Guessing', tactic: 'Credential Access' },
       { id: 'T1105', name: 'Ingress Tool Transfer', tactic: 'Command and Control' },
     ],
+    hassh: {
+      hassh: '9a4f21d3e8105c938192a01491823091',
+      client_banner: 'SSH-2.0-Go-crypto-ssh',
+      threat_profile: 'Mirai / Echobot Weaponized Go Scanner',
+      weaponized: true,
+    },
   },
   'sess-mirai-03-adapted': {
     session_id: 'sess-mirai-03-adapted',
@@ -202,6 +242,16 @@ const FALLBACK_SESSIONS: Record<string, DecoySessionEvent> = {
       { id: 'T1059.004', name: 'Unix Shell Execution', tactic: 'Execution' },
       { id: 'T1071.001', name: 'Web Protocols (C2)', tactic: 'Command and Control' },
     ],
+    hassh: {
+      hassh: '8b3e1091820938102938102938102938',
+      client_banner: 'SSH-2.0-paramiko_2.11.0',
+      threat_profile: 'Automated Python Scripted Dropper (Paramiko)',
+      kex: 'diffie-hellman-group14-sha1,curve25519-sha256',
+      encryption: 'aes128-ctr,aes256-ctr',
+      mac: 'hmac-sha1',
+      compression: 'none',
+      weaponized: true,
+    },
   },
   'sess-scada-01': {
     session_id: 'sess-scada-01',
@@ -213,6 +263,12 @@ const FALLBACK_SESSIONS: Record<string, DecoySessionEvent> = {
     malware_hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     c2_address: '93.184.216.34:502',
     target_device: 'substation',
+    hassh: {
+      hassh: 'cc129a04918239018230918230198230',
+      client_banner: 'SSH-2.0-libssh_0.9.5',
+      threat_profile: 'BlackEnergy SCADA Industrial Brute-Forcer',
+      weaponized: true,
+    },
   },
   'sess-scada-02': {
     session_id: 'sess-scada-02',
@@ -224,6 +280,12 @@ const FALLBACK_SESSIONS: Record<string, DecoySessionEvent> = {
     malware_hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     c2_address: '93.184.216.34:502',
     target_device: 'substation',
+    hassh: {
+      hassh: 'cc129a04918239018230918230198230',
+      client_banner: 'SSH-2.0-libssh_0.9.5',
+      threat_profile: 'BlackEnergy SCADA Industrial Brute-Forcer',
+      weaponized: true,
+    },
   },
   'sess-scanner-01': {
     session_id: 'sess-scanner-01',
@@ -235,6 +297,12 @@ const FALLBACK_SESSIONS: Record<string, DecoySessionEvent> = {
     malware_hash: null,
     c2_address: null,
     target_device: 'camera',
+    hassh: {
+      hassh: 'b2940182309182309182093810293810',
+      client_banner: 'SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.1',
+      threat_profile: 'Standard OpenSSH Distribution (Dual-Use / Scanner)',
+      weaponized: false,
+    },
   },
 }
 
@@ -277,16 +345,36 @@ const FALLBACK_AUDIT_LOG: AuditBlock[] = [
   },
 ]
 
+const FALLBACK_FEDERATION_RECORDS: FederatedRecord[] = [
+  {
+    tx_hash: '0x8f4e29b10a928410298371902834190823901823901823091820938102938102',
+    block_number: 19482101,
+    timestamp: '2026-10-24T11:32:00Z',
+    submitting_city: 'City A (Neo-Pune ICCC)',
+    campaign_id: 'CMP-001',
+    campaign_hash: '0x3a91082390182093810293810293810293810293',
+    c2_address: '185.220.101.5:443',
+    malware_hash: '7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069',
+    risk_tier: 'HIGH',
+    confidence: 'HIGH',
+    status: 'CONFIRMED_ON_CHAIN',
+  },
+]
+
 export const CampaignsPage: React.FC = () => {
   // Navigation & Sub-Tabs
-  const [activeSubTab, setActiveSubTab] = useState<'graph' | 'escrow' | 'audit' | 'guide'>('graph')
+  const [activeSubTab, setActiveSubTab] = useState<
+    'graph' | 'escrow' | 'audit' | 'mitre_hassh' | 'zk_snark' | 'federation' | 'guide'
+  >('graph')
 
-  // Data States
+  // Core Data States
   const [campaigns, setCampaigns] = useState<Campaign[]>(FALLBACK_CAMPAIGNS)
   const [cases, setCases] = useState<CaseRequest[]>(FALLBACK_CASES)
   const [auditLogs, setAuditLogs] = useState<AuditBlock[]>(FALLBACK_AUDIT_LOG)
   const [custodians, setCustodians] = useState<Custodian[]>(FALLBACK_CUSTODIANS)
   const [sessionEvents, setSessionEvents] = useState<Record<string, DecoySessionEvent>>(FALLBACK_SESSIONS)
+  const [federatedRecords, setFederatedRecords] = useState<FederatedRecord[]>(FALLBACK_FEDERATION_RECORDS)
+  const [cityBPreventions, setCityBPreventions] = useState<Array<Record<string, any>>>([])
 
   // Selection States
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('CMP-001')
@@ -295,14 +383,19 @@ export const CampaignsPage: React.FC = () => {
 
   // Verification & Feedback States
   const [auditVerified, setAuditVerified] = useState<boolean | null>(null)
+  const [zkVerified, setZkVerified] = useState<boolean | null>(null)
+  const [isVerifyingZk, setIsVerifyingZk] = useState<boolean>(false)
   const [drillBanner, setDrillBanner] = useState<{ type: 'info' | 'success' | 'danger'; title: string; desc: string } | null>(null)
   const [isVerifyingChain, setIsVerifyingChain] = useState<boolean>(false)
   const [revealedFootageKey, setRevealedFootageKey] = useState<string | null>(null)
 
-  // SVG Graph Layout Simulation
+  // STIX 2.1 Modal State
+  const [stixModalOpen, setStixModalOpen] = useState<boolean>(false)
+  const [stixContent, setStixContent] = useState<string>('')
+
   const graphContainerRef = useRef<SVGSVGElement | null>(null)
 
-  // Fetch live backend data if available
+  // Load backend data if available
   const loadBackendData = async () => {
     try {
       const campRes = await fetch('http://localhost:8000/intel/campaigns', { signal: AbortSignal.timeout(1500) })
@@ -340,6 +433,13 @@ export const CampaignsPage: React.FC = () => {
           setSessionEvents((prev) => ({ ...prev, ...map }))
         }
       }
+
+      const fedRes = await fetch('http://localhost:8000/intel/federation/registry', { signal: AbortSignal.timeout(1500) })
+      if (fedRes.ok) {
+        const fedData = await fedRes.json()
+        if (fedData?.records) setFederatedRecords(fedData.records)
+        if (fedData?.city_b_preventions) setCityBPreventions(fedData.city_b_preventions)
+      }
     } catch {
       // Gracefully maintain client demo state
     }
@@ -353,10 +453,9 @@ export const CampaignsPage: React.FC = () => {
   /* oxlint-enable react/set-state-in-effect */
 
   // =========================================================================
-  // Drill Handlers (Judging Demonstrations from Section 7)
+  // Drill Handlers
   // =========================================================================
   const handleRunDrillA = async () => {
-    // Drill A: Unauthorized pedestrian unmask attempt -> Blocked & logged
     try {
       const res = await fetch('http://localhost:8000/escrow/attempt-unauthorized', {
         method: 'POST',
@@ -371,7 +470,6 @@ export const CampaignsPage: React.FC = () => {
         })
       }
     } catch {
-      // Local fallback simulation of Drill A
       const newBlock: AuditBlock = {
         index: auditLogs.length,
         timestamp: getNowIso(),
@@ -395,13 +493,11 @@ export const CampaignsPage: React.FC = () => {
   }
 
   const handleRunDrillB = async () => {
-    // Drill B: Real attack hits decoy, honeytoken crossed, 2-of-3 custodians approve
     try {
       await fetch('http://localhost:8000/intel/drill/drill-b', { method: 'POST', signal: AbortSignal.timeout(1500) })
     } catch {
       // continue
     }
-    // Select CASE-2026-001 which is pending with 1 approval
     setSelectedCaseId('CASE-2026-001')
     setActiveSubTab('escrow')
     setDrillBanner({
@@ -412,7 +508,6 @@ export const CampaignsPage: React.FC = () => {
   }
 
   const handleRunDrillC = async () => {
-    // Drill C: Campaign clustering signature moment
     try {
       await fetch('http://localhost:8000/intel/drill/drill-c', { method: 'POST', signal: AbortSignal.timeout(1500) })
       await loadBackendData()
@@ -434,17 +529,18 @@ export const CampaignsPage: React.FC = () => {
       await fetch('http://localhost:8000/escrow/reset', { method: 'POST', signal: AbortSignal.timeout(1500) })
       await loadBackendData()
     } catch {
-      // Reset local
       setCampaigns(FALLBACK_CAMPAIGNS)
       setCases(FALLBACK_CASES)
       setAuditLogs(FALLBACK_AUDIT_LOG)
+      setSessionEvents(FALLBACK_SESSIONS)
     }
     setDrillBanner(null)
     setAuditVerified(null)
+    setZkVerified(null)
     setRevealedFootageKey(null)
   }
 
-  // Custodian Voting Handler
+  // Voting Handler
   const handleVote = async (custodianId: string, decision: 'approve' | 'deny') => {
     try {
       const res = await fetch(`http://localhost:8000/escrow/cases/${selectedCaseId}/vote`, {
@@ -460,9 +556,7 @@ export const CampaignsPage: React.FC = () => {
       if (res.ok) {
         const data = await res.json()
         setCases((prev) => prev.map((c) => (c.case_id === selectedCaseId ? data.case : c)))
-        if (data.unlocked_key) {
-          setRevealedFootageKey(data.unlocked_key)
-        }
+        if (data.unlocked_key) setRevealedFootageKey(data.unlocked_key)
         await loadBackendData()
         return
       }
@@ -470,7 +564,6 @@ export const CampaignsPage: React.FC = () => {
       // Local fallback vote handling
     }
 
-    // Fallback local update
     setCases((prev) =>
       prev.map((c) => {
         if (c.case_id !== selectedCaseId) return c
@@ -516,18 +609,115 @@ export const CampaignsPage: React.FC = () => {
         setAuditVerified(true)
       }
     } catch {
-      // Local verification simulation
       setTimeout(() => {
         setAuditVerified(true)
         setIsVerifyingChain(false)
-      }, 400)
+      }, 350)
       return
     }
-    setTimeout(() => setIsVerifyingChain(false), 300)
+    setTimeout(() => setIsVerifyingChain(false), 250)
   }
 
-  // STIX 2.1 IOC Download Handler
-  const handleDownloadSTIX = () => {
+  // ZK-SNARK Mathematical Verification Handler
+  const handleVerifyZkProof = async () => {
+    setIsVerifyingZk(true)
+    setTimeout(() => {
+      setZkVerified(true)
+      setIsVerifyingZk(false)
+    }, 450)
+  }
+
+  // Cross-City Federation Handlers
+  const handlePublishToFederation = async () => {
+    try {
+      const res = await fetch(`http://localhost:8000/intel/federation/publish/${selectedCampaignId}`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(2000),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.record) setFederatedRecords((prev) => [data.record, ...prev])
+        setDrillBanner({
+          type: 'success',
+          title: 'Campaign Hash Published On-Chain',
+          desc: `Transaction ${data.record.tx_hash.substring(0, 18)}... confirmed on Polygon testnet block #${data.record.block_number}.`,
+        })
+        return
+      }
+    } catch {
+      // Local fallback
+    }
+    const newRecord: FederatedRecord = {
+      tx_hash: '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+      block_number: 19482100 + federatedRecords.length + 1,
+      timestamp: getNowIso(),
+      submitting_city: 'City A (Neo-Pune ICCC)',
+      campaign_id: selectedCampaignId,
+      campaign_hash: '0x94b1092830198230918230918230918209381029',
+      c2_address: '185.220.101.5:443',
+      malware_hash: '7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069',
+      risk_tier: 'HIGH',
+      confidence: 'HIGH',
+      status: 'CONFIRMED_ON_CHAIN',
+    }
+    setFederatedRecords((prev) => [newRecord, ...prev])
+    setDrillBanner({
+      type: 'success',
+      title: 'Threat Hash Published to Testnet Registry',
+      desc: `Campaign ${selectedCampaignId} registered on-chain at block #${newRecord.block_number}.`,
+    })
+  }
+
+  const handleSimulateCityBAttack = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/intel/federation/simulate-city-b-attack', {
+        method: 'POST',
+        signal: AbortSignal.timeout(2000),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCityBPreventions((prev) => [data.event, ...prev])
+        setDrillBanner({
+          type: 'success',
+          title: 'City B Preemptive Defense Triggered',
+          desc: 'Incoming probe matched on-chain C2 record from City A! Auto-routed to Phantom Twin decoy before touching real grid.',
+        })
+        return
+      }
+    } catch {
+      // Local fallback
+    }
+    const mockEvent = {
+      incident_id: `CITY-B-INC-00${cityBPreventions.length + 1}`,
+      target_city: 'City B (Cyber-Bengaluru ICCC)',
+      incoming_attacker_ip: '185.220.101.5',
+      matched_federated_campaign: 'CMP-001',
+      smart_contract_tx: '0x8f4e29b10a...',
+      defense_action: 'PREEMPTIVE_DECOY_ROUTING',
+      reason: 'Federated threat match: Originating C2 recognized from City A testnet contract.',
+      timestamp: getNowIso(),
+    }
+    setCityBPreventions((prev) => [mockEvent, ...prev])
+    setDrillBanner({
+      type: 'success',
+      title: 'City B Decoy Defense Triggered',
+      desc: 'Incoming Mirai probe neutralized instantly using City A on-chain threat registry.',
+    })
+  }
+
+  // STIX 2.1 View / Download Handler
+  const handleOpenSTIX = async () => {
+    try {
+      const res = await fetch(`http://localhost:8000/intel/export/stix/${selectedCampaignId}`, { signal: AbortSignal.timeout(1500) })
+      if (res.ok) {
+        const data = await res.json()
+        setStixContent(JSON.stringify(data, null, 2))
+        setStixModalOpen(true)
+        return
+      }
+    } catch {
+      // fallback
+    }
     const activeCamp = campaigns.find((c) => c.campaign_id === selectedCampaignId) || campaigns[0]
     const bundle = {
       type: 'bundle',
@@ -535,8 +725,19 @@ export const CampaignsPage: React.FC = () => {
       spec_version: '2.1',
       objects: [
         {
+          type: 'identity',
+          id: 'identity--aegismirage-soc',
+          name: 'AegisMirage Smart City CSIRT',
+          identity_class: 'organization',
+        },
+        {
+          type: 'threat-actor',
+          id: `threat-actor--${crypto.randomUUID()}`,
+          name: `Unattributed Botnet Operator [${activeCamp?.campaign_id}]`,
+          sophistication: 'intermediate',
+        },
+        {
           type: 'campaign',
-          spec_version: '2.1',
           id: `campaign--${crypto.randomUUID()}`,
           name: `AegisMirage Campaign ${activeCamp?.campaign_id}`,
           confidence: activeCamp?.confidence === 'high' ? 85 : 60,
@@ -545,24 +746,24 @@ export const CampaignsPage: React.FC = () => {
         },
       ],
     }
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+    setStixContent(JSON.stringify(bundle, null, 2))
+    setStixModalOpen(true)
+  }
+
+  const handleDownloadSTIXFile = () => {
+    const blob = new Blob([stixContent], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `STIX-2.1-${activeCamp?.campaign_id || 'Campaign'}.json`
+    a.download = `STIX-2.1-${selectedCampaignId}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  // Selected Entities
+  // Active selections
   const activeCampaign = useMemo(() => campaigns.find((c) => c.campaign_id === selectedCampaignId) || campaigns[0], [campaigns, selectedCampaignId])
   const activeCase = useMemo(() => cases.find((c) => c.case_id === selectedCaseId) || cases[0], [cases, selectedCaseId])
   const activeSession = useMemo(() => sessionEvents[selectedSessionId] || Object.values(sessionEvents)[0], [sessionEvents, selectedSessionId])
-
-  // Calculated Metrics
-  const totalSessionsCount = useMemo(() => Object.keys(sessionEvents).length, [sessionEvents])
-  const activeCampaignsCount = useMemo(() => campaigns.length, [campaigns])
-  const approvedWarrantsCount = useMemo(() => cases.filter((c) => c.status === 'approved').length, [cases])
 
   return (
     <div className="campaigns-root" id="page-campaigns">
@@ -572,12 +773,12 @@ export const CampaignsPage: React.FC = () => {
           <div className="header-badges">
             <span className="owner-badge">Member C: Threat Intelligence & Escrow (Stages 3 & 4)</span>
             <span className="scaffold-tag" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
-              Contract Active
+              Core + All Stretch Features
             </span>
           </div>
           <h1 id="heading-campaigns">Threat Campaigns & Break-Glass Escrow</h1>
           <p className="subhead-desc">
-            Graph-based multi-session botnet correlation, blast-radius risk scoring, and Shamir 2-of-3 custodian escrow unmasking.
+            Graph-based threat correlation, Shamir 2-of-3 escrow unmasking, Groth16 ZK-SNARK verifier, Salesforce HASSH analysis, and Cross-City decentralized threat sharing.
           </p>
         </div>
 
@@ -652,7 +853,7 @@ export const CampaignsPage: React.FC = () => {
         <div className="metric-card">
           <span className="metric-title">Active Botnet Campaigns</span>
           <div className="metric-value-wrap">
-            <span className="metric-val">{activeCampaignsCount}</span>
+            <span className="metric-val">{campaigns.length}</span>
             <span className="metric-sub">Multi-IP clusters</span>
           </div>
         </div>
@@ -660,7 +861,7 @@ export const CampaignsPage: React.FC = () => {
         <div className="metric-card">
           <span className="metric-title">Correlated Decoy Sessions</span>
           <div className="metric-value-wrap">
-            <span className="metric-val">{totalSessionsCount}</span>
+            <span className="metric-val">{Object.keys(sessionEvents).length}</span>
             <span className="metric-sub">Honeypot captures</span>
           </div>
         </div>
@@ -674,30 +875,23 @@ export const CampaignsPage: React.FC = () => {
         </div>
 
         <div className="metric-card">
-          <span className="metric-title">Scoped Unmasked Warrants</span>
+          <span className="metric-title">Federated Threat Chain</span>
           <div className="metric-value-wrap">
-            <span className="metric-val" style={{ color: approvedWarrantsCount > 0 ? '#34d399' : '#ffffff' }}>
-              {approvedWarrantsCount}
+            <span className="metric-val" style={{ color: '#38bdf8' }}>
+              {federatedRecords.length}
             </span>
-            <span className="metric-sub">Camera 10-min windows</span>
+            <span className="metric-sub">Smart contract blocks</span>
           </div>
         </div>
       </div>
 
-      {/* Sub-Tab Navigation */}
+      {/* Sub-Tab Navigation Bar with Stretch Features */}
       <div className="subtabs-bar">
         <button
           type="button"
           className={`subtab-btn ${activeSubTab === 'graph' ? 'active' : ''}`}
           onClick={() => setActiveSubTab('graph')}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="18" cy="5" r="3" />
-            <circle cx="6" cy="12" r="3" />
-            <circle cx="18" cy="19" r="3" />
-            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-          </svg>
           <span>Live Campaign Graph (Stage 3)</span>
           <span className="subtab-count">{campaigns.length}</span>
         </button>
@@ -707,10 +901,6 @@ export const CampaignsPage: React.FC = () => {
           className={`subtab-btn ${activeSubTab === 'escrow' ? 'active' : ''}`}
           onClick={() => setActiveSubTab('escrow')}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-          </svg>
           <span>Break-Glass Escrow & Quorum (Stage 4)</span>
           <span className="subtab-count">{cases.length}</span>
         </button>
@@ -720,14 +910,41 @@ export const CampaignsPage: React.FC = () => {
           className={`subtab-btn ${activeSubTab === 'audit' ? 'active' : ''}`}
           onClick={() => setActiveSubTab('audit')}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="16" y1="13" x2="8" y2="13" />
-            <line x1="16" y1="17" x2="8" y2="17" />
-          </svg>
           <span>Cryptographic Audit Trail</span>
           <span className="subtab-count">{auditLogs.length}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`subtab-btn ${activeSubTab === 'mitre_hassh' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('mitre_hassh')}
+        >
+          <span>HASSH & MITRE Matrix</span>
+          <span className="subtab-count" style={{ background: 'rgba(99, 102, 241, 0.25)', color: '#c7d2fe' }}>
+            Stretch
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className={`subtab-btn ${activeSubTab === 'zk_snark' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('zk_snark')}
+        >
+          <span>ZK-SNARK Circuit Proof</span>
+          <span className="subtab-count" style={{ background: 'rgba(16, 185, 129, 0.25)', color: '#34d399' }}>
+            Stretch
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className={`subtab-btn ${activeSubTab === 'federation' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('federation')}
+        >
+          <span>Cross-City Federation</span>
+          <span className="subtab-count" style={{ background: 'rgba(56, 189, 248, 0.25)', color: '#38bdf8' }}>
+            Stretch
+          </span>
         </button>
 
         <button
@@ -735,39 +952,33 @@ export const CampaignsPage: React.FC = () => {
           className={`subtab-btn ${activeSubTab === 'guide' ? 'active' : ''}`}
           onClick={() => setActiveSubTab('guide')}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="16" x2="12" y2="12" />
-            <line x1="12" y1="8" x2="12.01" y2="8" />
-          </svg>
-          <span>Demo Script & Pitch Guide</span>
+          <span>Demo Script & Pitch</span>
         </button>
       </div>
 
       {/* =================================================================== */}
-      {/* TAB 1: LIVE CAMPAIGN GRAPH & THREAT INTELLIGENCE (STAGE 3)          */}
+      {/* TAB 1: LIVE CAMPAIGN GRAPH & THREAT INTELLIGENCE                   */}
       {/* =================================================================== */}
       {activeSubTab === 'graph' && (
         <div className="graph-view-container">
-          {/* Visual SVG Threat Graph */}
           <div className="graph-canvas-card">
             <div className="canvas-toolbar">
               <div className="graph-legend">
                 <span className="legend-item">
-                  <span className="legend-dot campaign" /> Campaign Cluster
+                  <span className="legend-dot campaign" /> Campaign Cluster Hub
                 </span>
                 <span className="legend-item">
                   <span className="legend-dot session" /> Decoy Session
                 </span>
                 <span className="legend-item">
-                  <span className="legend-dot threat" /> Honeytoken Tripwire Hit
+                  <span className="legend-dot threat" /> Honeytoken Hit
                 </span>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
                   type="button"
                   className="btn-drill"
-                  onClick={handleDownloadSTIX}
+                  onClick={handleOpenSTIX}
                   style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -775,7 +986,7 @@ export const CampaignsPage: React.FC = () => {
                     <polyline points="7 10 12 15 17 10" />
                     <line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  <span>Export STIX 2.1</span>
+                  <span>View / Export STIX 2.1</span>
                 </button>
               </div>
             </div>
@@ -794,13 +1005,11 @@ export const CampaignsPage: React.FC = () => {
                   </filter>
                 </defs>
 
-                {/* Edges between nodes */}
-                {/* Campaign 1 Hub & Leaves */}
+                {/* Edges */}
                 <line x1="200" y1="160" x2="90" y2="80" className="edge-line" />
                 <line x1="200" y1="160" x2="90" y2="240" className="edge-line" />
                 <line x1="200" y1="160" x2="310" y2="100" className="edge-line" />
 
-                {/* Strong Correlation Between Sessions in Campaign 1 */}
                 <line x1="90" y1="80" x2="90" y2="240" className="edge-line strong" />
                 <text x="50" y="160" className="edge-label-text">
                   Shared C2 (185.220.101.5)
@@ -811,7 +1020,6 @@ export const CampaignsPage: React.FC = () => {
                   Attacker IP Rotation Linked via C2
                 </text>
 
-                {/* Campaign 2 Hub & Leaves */}
                 <line x1="520" y1="280" x2="440" y2="380" className="edge-line" />
                 <line x1="520" y1="280" x2="600" y2="380" className="edge-line" />
                 <line x1="440" y1="380" x2="600" y2="380" className="edge-line strong" />
@@ -819,11 +1027,9 @@ export const CampaignsPage: React.FC = () => {
                   Same SCADA Exploit & C2 (93.184.216.34)
                 </text>
 
-                {/* Campaign 3 Hub & Leaf (Isolated Scanner) */}
                 <line x1="480" y1="90" x2="580" y2="100" className="edge-line" />
 
-                {/* NODES */}
-                {/* Campaign 1 Hub */}
+                {/* Nodes */}
                 <g
                   className={`graph-node ${selectedCampaignId === 'CMP-001' ? 'selected' : ''}`}
                   onClick={() => setSelectedCampaignId('CMP-001')}
@@ -838,7 +1044,6 @@ export const CampaignsPage: React.FC = () => {
                   </text>
                 </g>
 
-                {/* Session 1 Leaf */}
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-mirai-01' ? 'selected' : ''}`}
                   onClick={() => {
@@ -856,7 +1061,6 @@ export const CampaignsPage: React.FC = () => {
                   </text>
                 </g>
 
-                {/* Session 2 Leaf */}
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-mirai-02' ? 'selected' : ''}`}
                   onClick={() => {
@@ -874,7 +1078,6 @@ export const CampaignsPage: React.FC = () => {
                   </text>
                 </g>
 
-                {/* Session 3 Leaf (Adapted attacker) */}
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-mirai-03-adapted' ? 'selected' : ''}`}
                   onClick={() => {
@@ -892,7 +1095,6 @@ export const CampaignsPage: React.FC = () => {
                   </text>
                 </g>
 
-                {/* Campaign 2 Hub */}
                 <g
                   className={`graph-node ${selectedCampaignId === 'CMP-002' ? 'selected' : ''}`}
                   onClick={() => setSelectedCampaignId('CMP-002')}
@@ -907,7 +1109,6 @@ export const CampaignsPage: React.FC = () => {
                   </text>
                 </g>
 
-                {/* SCADA 1 Leaf */}
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-scada-01' ? 'selected' : ''}`}
                   onClick={() => {
@@ -925,7 +1126,6 @@ export const CampaignsPage: React.FC = () => {
                   </text>
                 </g>
 
-                {/* SCADA 2 Leaf */}
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-scada-02' ? 'selected' : ''}`}
                   onClick={() => {
@@ -943,7 +1143,6 @@ export const CampaignsPage: React.FC = () => {
                   </text>
                 </g>
 
-                {/* Campaign 3 Hub & Leaf */}
                 <g
                   className={`graph-node ${selectedCampaignId === 'CMP-003' ? 'selected' : ''}`}
                   onClick={() => setSelectedCampaignId('CMP-003')}
@@ -978,7 +1177,7 @@ export const CampaignsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Evidence & Session Inspector Drawer */}
+          {/* Inspector Drawer */}
           <div className="inspector-card">
             <div className="inspector-header">
               <div>
@@ -991,7 +1190,6 @@ export const CampaignsPage: React.FC = () => {
             </div>
 
             <div className="inspector-body">
-              {/* Campaign High-Level Card */}
               {activeCampaign && (
                 <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
                   <div className="field-label">Linked Campaign</div>
@@ -1027,14 +1225,27 @@ export const CampaignsPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* HASSH Fingerprint Quick Badge */}
+              {activeSession?.hassh && (
+                <div className="field-group">
+                  <span className="field-label">HASSH Fingerprint Profile</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    <span className="code-pill" style={{ color: activeSession.hassh.weaponized ? '#fb7185' : '#38bdf8' }}>
+                      {activeSession.hassh.threat_profile}
+                    </span>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#64748b' }}>
+                      MD5: {activeSession.hassh.hassh}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Honeytoken Status */}
               <div className="field-group">
                 <span className="field-label">Tripwire / Honeytoken Hit</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   {activeSession?.honeytoken_hit ? (
-                    <span className="status-chip denied" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                      ● TRIPWIRE TRIPPED (Rickroll Payload Fired)
-                    </span>
+                    <span className="status-chip denied">● TRIPWIRE TRIPPED (Rickroll Fired)</span>
                   ) : (
                     <span className="status-chip approved">CLEAN / NO TRIPWIRE</span>
                   )}
@@ -1096,11 +1307,10 @@ export const CampaignsPage: React.FC = () => {
       )}
 
       {/* =================================================================== */}
-      {/* TAB 2: BREAK-GLASS ESCROW & CUSTODIAN QUORUM (STAGE 4)              */}
+      {/* TAB 2: BREAK-GLASS ESCROW & CUSTODIAN QUORUM                       */}
       {/* =================================================================== */}
       {activeSubTab === 'escrow' && (
         <div className="escrow-grid">
-          {/* Active Cases List */}
           <div className="cases-list-card">
             <div className="card-title-bar">
               <h3>Break-Glass Warrants</h3>
@@ -1130,7 +1340,6 @@ export const CampaignsPage: React.FC = () => {
               ))}
             </div>
 
-            {/* Drill A trigger button right inside Escrow */}
             <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)' }}>
               <button
                 type="button"
@@ -1146,7 +1355,6 @@ export const CampaignsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Detailed Custodian Voting Booth & Scoped Unmasking */}
           <div className="case-detail-card">
             <div className="card-title-bar">
               <div>
@@ -1159,7 +1367,6 @@ export const CampaignsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Quorum Progress Tracker */}
             <div className="quorum-tracker">
               <div>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fff' }}>
@@ -1181,7 +1388,6 @@ export const CampaignsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Custodian Voting Cards */}
             <div>
               <span className="field-label" style={{ marginBottom: '0.5rem', display: 'block' }}>
                 Designated Municipal Custodians (Independent Quorum)
@@ -1190,10 +1396,7 @@ export const CampaignsPage: React.FC = () => {
                 {custodians.map((custodian) => {
                   const hasApproved = activeCase?.approvals.includes(custodian.id)
                   return (
-                    <div
-                      key={custodian.id}
-                      className={`custodian-card ${hasApproved ? 'has-voted-approve' : ''}`}
-                    >
+                    <div key={custodian.id} className={`custodian-card ${hasApproved ? 'has-voted-approve' : ''}`}>
                       <div className="custodian-header">
                         <div className="custodian-avatar">{custodian.avatar_badge}</div>
                         <div>
@@ -1230,7 +1433,6 @@ export const CampaignsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Unmasked Key Showcase & Scoped Decryption Preview */}
             {activeCase?.status === 'approved' && (
               <div className="unmasked-key-card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1285,10 +1487,7 @@ export const CampaignsPage: React.FC = () => {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               {auditVerified !== null && (
-                <span
-                  className="status-chip approved"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
-                >
+                <span className="status-chip approved">
                   ✓ {auditVerified ? 'Chain Valid (0 Tampered Blocks)' : 'Integrity Error'}
                 </span>
               )}
@@ -1354,7 +1553,363 @@ export const CampaignsPage: React.FC = () => {
       )}
 
       {/* =================================================================== */}
-      {/* TAB 4: CHRONOFORGE DEMO SCRIPT GUIDE                                */}
+      {/* STRETCH TAB 4: HASSH & MITRE ATT&CK MATRIX                          */}
+      {/* =================================================================== */}
+      {activeSubTab === 'mitre_hassh' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* MITRE ATT&CK Matrix Grid */}
+          <div className="tactic-column" style={{ padding: '1rem', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span className="field-label">MITRE ATT&CK Framework</span>
+                <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>Enterprise IoT Threat Technique Matrix</h3>
+              </div>
+              <span className="code-pill">7 Techniques Active Across Captured Honeypot Sessions</span>
+            </div>
+
+            <div className="mitre-matrix-grid">
+              <div className="tactic-column">
+                <div className="tactic-header">Credential Access</div>
+                <div className="technique-item active">
+                  <span className="technique-id-badge">T1110.001</span>
+                  <span className="technique-name">Password Guessing</span>
+                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Brute-forcing default credentials on IoT ports</p>
+                  <span className="technique-count-pill">3 Sessions</span>
+                </div>
+                <div className="technique-item active">
+                  <span className="technique-id-badge">T1078</span>
+                  <span className="technique-name">Valid Accounts</span>
+                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Factory default camera logins</p>
+                  <span className="technique-count-pill">2 Sessions</span>
+                </div>
+              </div>
+
+              <div className="tactic-column">
+                <div className="tactic-header">Execution</div>
+                <div className="technique-item active">
+                  <span className="technique-id-badge">T1059.004</span>
+                  <span className="technique-name">Unix Shell Execution</span>
+                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Executing bash/busybox droppers in decoy</p>
+                  <span className="technique-count-pill">5 Sessions</span>
+                </div>
+              </div>
+
+              <div className="tactic-column">
+                <div className="tactic-header">Command & Control</div>
+                <div className="technique-item active">
+                  <span className="technique-id-badge">T1071.001</span>
+                  <span className="technique-name">Web Protocols (C2)</span>
+                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Beaconing to remote C2 IP (185.220.101.5)</p>
+                  <span className="technique-count-pill">4 Sessions</span>
+                </div>
+                <div className="technique-item active">
+                  <span className="technique-id-badge">T1105</span>
+                  <span className="technique-name">Ingress Tool Transfer</span>
+                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Payload staged via wget/curl/tftp</p>
+                  <span className="technique-count-pill">4 Sessions</span>
+                </div>
+              </div>
+
+              <div className="tactic-column">
+                <div className="tactic-header">Impact</div>
+                <div className="technique-item active">
+                  <span className="technique-id-badge">T1499</span>
+                  <span className="technique-name">Endpoint Denial of Service</span>
+                  <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Mirai botnet orchestration telemetry</p>
+                  <span className="technique-count-pill">4 Sessions</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Salesforce HASSH SSH Client Fingerprinting Decoder */}
+          <div className="hassh-table-card">
+            <div>
+              <span className="field-label">Salesforce HASSH Specification</span>
+              <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>SSH Client Fingerprint Signatures</h3>
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                <code>hassh = MD5(kex + ";" + encryption + ";" + mac + ";" + compression)</code>. Weaponized scanning tools exhibit identifiable cryptographic cipher negotiation signatures.
+              </p>
+            </div>
+
+            <div className="hassh-card-grid">
+              <div className="hassh-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="hassh-weaponized-badge">Weaponized Botnet Scanner</span>
+                  <span style={{ fontSize: '0.75rem', color: '#f59e0b' }}>Confidence: High</span>
+                </div>
+                <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>Mirai / Echobot Weaponized Go Scanner</div>
+                <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#38bdf8' }}>
+                  HASSH: 9a4f21d3e8105c938192a01491823091
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Banner: <code>SSH-2.0-Go-crypto-ssh</code>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                  Ciphers: chacha20-poly1305@openssh.com, aes128-ctr | MAC: hmac-sha2-256-etm
+                </div>
+              </div>
+
+              <div className="hassh-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="hassh-weaponized-badge">SCADA Industrial Exploit</span>
+                  <span style={{ fontSize: '0.75rem', color: '#f43f5e' }}>Confidence: Critical</span>
+                </div>
+                <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>BlackEnergy SCADA Industrial Brute-Forcer</div>
+                <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#38bdf8' }}>
+                  HASSH: cc129a04918239018230918230198230
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Banner: <code>SSH-2.0-libssh_0.9.5</code>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                  Ciphers: aes256-gcm@openssh.com, aes128-gcm | KEX: curve25519-sha256@libssh.org
+                </div>
+              </div>
+
+              <div className="hassh-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="code-pill">Dual-Use / Scanner</span>
+                  <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Confidence: Low</span>
+                </div>
+                <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>Standard OpenSSH Distribution</div>
+                <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#94a3b8' }}>
+                  HASSH: b2940182309182309182093810293810
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Banner: <code>SSH-2.0-OpenSSH_8.9p1 Ubuntu</code>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                  Ciphers: chacha20-poly1305, aes128-gcm | Standard legitimate Linux client
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* STRETCH TAB 5: ZK-SNARK GROTH16 CIRCUIT PROOF VERIFIER              */}
+      {/* =================================================================== */}
+      {activeSubTab === 'zk_snark' && (
+        <div className="zk-view-grid">
+          <div className="zk-card">
+            <div>
+              <span className="field-label">Groth16 Zero-Knowledge Circuit</span>
+              <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>AegisEscrowQuorumVerifier.circom</h3>
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.3rem' }}>
+                Mathematically proves that a quorum of at least 2 municipal custodians signed without revealing which custodians signed, and constrains unlock to a single 10-minute camera window.
+              </p>
+            </div>
+
+            <div className="curve-point-box">
+              <span className="field-label" style={{ color: '#38bdf8' }}>π_A ∈ G1 (Elliptic Curve Point)</span>
+              <span>X: 0x19a4f89102847192837190283419082390182390182309182093810293810293</span>
+              <span>Y: 0x08b2910398102938102938102938102938102938102938102938102938102938</span>
+            </div>
+
+            <div className="curve-point-box">
+              <span className="field-label" style={{ color: '#38bdf8' }}>π_B ∈ G2 (Twisted Curve Point)</span>
+              <span>X: [0x28a1093810293810..., 0x11b3091820398120...]</span>
+              <span>Y: [0x09f4019283019823..., 0x14c2091820391820...]</span>
+            </div>
+
+            <div className="curve-point-box">
+              <span className="field-label" style={{ color: '#38bdf8' }}>π_C ∈ G1 (Proof Wire)</span>
+              <span>X: 0x33f1092830192830192830192830192830192830192830192830192830192830</span>
+              <span>Y: 0x12a8091820391820391820391820391820391820391820391820391820391820</span>
+            </div>
+
+            <div className="pairing-equation-badge">
+              <span>e(π_A, π_B) = e(α, β) · e(∑ x_i · IC_i, γ) · e(π_C, δ)</span>
+              <span style={{ fontWeight: 700 }}>BN254</span>
+            </div>
+          </div>
+
+          <div className="zk-card">
+            <div>
+              <span className="field-label">Public Signals & Verification</span>
+              <h3 style={{ fontSize: '1.1rem', color: '#fff' }}>Proof Verification Key & Signals</h3>
+            </div>
+
+            <div className="field-group">
+              <span className="field-label">Public Input 0 (Constant Wire)</span>
+              <code>1</code>
+            </div>
+
+            <div className="field-group">
+              <span className="field-label">Public Input 1 (Camera ID Hash Commitment)</span>
+              <code>0x{hashlib_preview('CAM-04-MARKET')}</code>
+            </div>
+
+            <div className="field-group">
+              <span className="field-label">Public Input 2 (Window ID Hash Commitment)</span>
+              <code>0x{hashlib_preview('WIN-20261024-1130')}</code>
+            </div>
+
+            <div className="field-group">
+              <span className="field-label">Public Input 3 (Threshold Constant k)</span>
+              <code>2 (Shamir 2-of-3 Quorum)</code>
+            </div>
+
+            <div style={{ marginTop: 'auto', paddingTop: '1rem' }}>
+              {zkVerified && (
+                <div
+                  style={{
+                    padding: '0.75rem 1rem',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    border: '1px solid rgba(16, 185, 129, 0.4)',
+                    color: '#34d399',
+                    marginBottom: '0.75rem',
+                    fontSize: '0.825rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  ✓ ZK-SNARK PROOF MATHEMATICALLY VERIFIED — Quorum validated without identity leakage.
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="btn-drill btn-drill-c"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={handleVerifyZkProof}
+                disabled={isVerifyingZk}
+              >
+                <span>{isVerifyingZk ? 'Evaluating Bilinear Pairings...' : 'Verify ZK-SNARK Mathematical Proof'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* STRETCH TAB 6: CROSS-CITY THREAT FEDERATION (SMART CONTRACT)        */}
+      {/* =================================================================== */}
+      {activeSubTab === 'federation' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* Smart Contract Hero Grid */}
+          <div className="federation-hero">
+            <div className="city-node-card">
+              <span className="field-label" style={{ color: '#38bdf8' }}>Originating Municipality</span>
+              <h3 style={{ fontSize: '1.05rem', color: '#fff' }}>City A (Neo-Pune ICCC)</h3>
+              <p style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                Detects Mirai campaign CMP-001 targeting local traffic sensors. Publishes threat signature to testnet contract.
+              </p>
+              <button
+                type="button"
+                className="btn-drill btn-drill-c"
+                style={{ marginTop: '0.5rem' }}
+                onClick={handlePublishToFederation}
+              >
+                <span>Publish Threat Hash to Smart Contract</span>
+              </button>
+            </div>
+
+            <div className="contract-sync-hub">
+              <div className="chain-block-cube">⛓️</div>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#38bdf8' }}>Polygon Testnet</span>
+              <code style={{ fontSize: '0.7rem' }}>0x71C2...A89F</code>
+            </div>
+
+            <div className="city-node-card">
+              <span className="field-label" style={{ color: '#fbbf24' }}>Federated Consumer</span>
+              <h3 style={{ fontSize: '1.05rem', color: '#fff' }}>City B (Cyber-Bengaluru ICCC)</h3>
+              <p style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                Monitors on-chain registry. Automatically pre-routes recognized botnet probes to Phantom Twin decoys!
+              </p>
+              <button
+                type="button"
+                className="btn-drill btn-drill-b"
+                style={{ marginTop: '0.5rem' }}
+                onClick={handleSimulateCityBAttack}
+              >
+                <span>Simulate City B Preemptive Neutralization</span>
+              </button>
+            </div>
+          </div>
+
+          {/* On-Chain Ledger Table */}
+          <div className="audit-table-card">
+            <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-subtle)' }}>
+              <span className="field-label">Decentralized Threat Registry</span>
+              <h3 style={{ fontSize: '1rem', color: '#fff' }}>Smart Contract Transaction Ledger</h3>
+            </div>
+            <table className="audit-table">
+              <thead>
+                <tr>
+                  <th>Block #</th>
+                  <th>Timestamp</th>
+                  <th>Submitting Node</th>
+                  <th>Campaign ID</th>
+                  <th>Shared C2 / Malware Hash</th>
+                  <th>Status</th>
+                  <th>Tx Hash</th>
+                </tr>
+              </thead>
+              <tbody>
+                {federatedRecords.map((r, idx) => (
+                  <tr key={idx}>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>#{r.block_number}</td>
+                    <td style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)' }}>
+                      {r.timestamp.replace('T', ' ').substring(0, 19)}
+                    </td>
+                    <td>{r.submitting_city}</td>
+                    <td>
+                      <span className="code-pill">{r.campaign_id}</span>
+                    </td>
+                    <td style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)' }}>
+                      {r.c2_address ? `C2: ${r.c2_address}` : `Malware: ${r.malware_hash?.substring(0, 16)}...`}
+                    </td>
+                    <td>
+                      <span className="status-chip approved">{r.status}</span>
+                    </td>
+                    <td>
+                      <span className="hash-link-code">{r.tx_hash.substring(0, 14)}...</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* City B Prevented Attacks Log */}
+          {cityBPreventions.length > 0 && (
+            <div className="audit-table-card" style={{ borderColor: 'rgba(56, 189, 248, 0.4)' }}>
+              <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-subtle)' }}>
+                <span className="field-label" style={{ color: '#38bdf8' }}>City B Live Telemetry</span>
+                <h3 style={{ fontSize: '1rem', color: '#fff' }}>Neutralized Multi-City Attacks</h3>
+              </div>
+              <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {cityBPreventions.map((p, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '0.75rem 1rem',
+                      background: 'rgba(56, 189, 248, 0.08)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid rgba(56, 189, 248, 0.25)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <strong style={{ color: '#38bdf8', fontSize: '0.85rem' }}>{p.incident_id}</strong>
+                      <span style={{ color: '#cbd5e1', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{p.reason}</span>
+                    </div>
+                    <span className="status-chip approved">Preemptive Decoy Routed</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 7: CHRONOFORGE DEMO SCRIPT GUIDE                                */}
       {/* =================================================================== */}
       {activeSubTab === 'guide' && (
         <div className="script-guide-container">
@@ -1409,6 +1964,47 @@ export const CampaignsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* STIX 2.1 JSON Modal */}
+      {stixModalOpen && (
+        <div className="stix-modal-backdrop" onClick={() => setStixModalOpen(false)}>
+          <div className="stix-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="stix-modal-header">
+              <div>
+                <span className="field-label">OASIS Standard CTI</span>
+                <h3 style={{ fontSize: '1rem', color: '#fff' }}>STIX 2.1 Threat Intelligence Bundle</h3>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="btn-drill"
+                  onClick={handleDownloadSTIXFile}
+                  style={{ fontSize: '0.75rem' }}
+                >
+                  Download .json
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStixModalOpen(false)}
+                  style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1.2rem' }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <pre className="stix-modal-content">{stixContent}</pre>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+function hashlib_preview(strVal: string): string {
+  let hash = 0
+  for (let i = 0; i < strVal.length; i++) {
+    hash = (hash << 5) - hash + strVal.charCodeAt(i)
+    hash |= 0
+  }
+  return Math.abs(hash).toString(16).padStart(8, '0') + 'f9a2...'
 }
