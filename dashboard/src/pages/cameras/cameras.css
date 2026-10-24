@@ -180,7 +180,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.85rem 1rem;
-  background: rgba(13, 18, 29, 0.8);
+  background: var(--bg-surface-elevated);
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -438,7 +438,7 @@
 
 .events-table th {
   padding: 0.65rem 1rem;
-  background: rgba(13, 18, 29, 0.9);
+  background: var(--bg-surface-elevated);
   color: var(--text-secondary);
   font-weight: 600;
   position: sticky;
@@ -449,12 +449,12 @@
 
 .events-table td {
   padding: 0.65rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border-subtle);
   color: var(--text-primary);
 }
 
 .events-table tr:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-surface-hover);
 }
 
 .event-type-pill {

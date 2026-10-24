@@ -1013,12 +1013,13 @@ export const DecoyPage: React.FC = () => {
                 <div
                   className="drill-feedback-banner"
                   style={{
-                    background: 'rgba(56, 189, 248, 0.12)',
-                    border: '1px solid var(--accent-cyan)',
+                    background: 'var(--accent-primary-subtle)',
+                    border: '1px solid var(--border-production)',
                     borderRadius: 'var(--radius-sm)',
                     padding: '0.55rem 0.85rem',
                     fontSize: '0.775rem',
-                    color: '#e0f2fe',
+                    color: 'var(--accent-primary)',
+                    fontWeight: 500,
                     lineHeight: 1.4,
                     display: 'flex',
                     alignItems: 'center',
@@ -1098,7 +1099,7 @@ export const DecoyPage: React.FC = () => {
                   </span>
                   <span>
                     Risk Score:{' '}
-                    <strong style={{ color: selectedSession.gateway_decision.score >= 60 ? '#fb7185' : '#34d399' }}>
+                    <strong style={{ color: selectedSession.gateway_decision.score >= 60 ? 'var(--accent-danger)' : 'var(--accent-primary)' }}>
                       {selectedSession.gateway_decision.score.toFixed(1)} / 100
                     </strong>
                   </span>
@@ -1187,10 +1188,10 @@ export const DecoyPage: React.FC = () => {
                 style={{
                   flex: 1,
                   padding: '0.55rem 0.85rem',
-                  background: 'rgba(13, 18, 29, 0.8)',
+                  background: 'var(--bg-surface-subtle)',
                   border: '1px solid var(--border-subtle)',
                   borderRadius: 'var(--radius-sm)',
-                  color: '#fff',
+                  color: 'var(--text-primary)',
                   fontFamily: 'var(--font-mono)',
                   fontSize: '0.8rem',
                 }}
@@ -1198,7 +1199,7 @@ export const DecoyPage: React.FC = () => {
               <button
                 type="submit"
                 className="btn-sim"
-                style={{ borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)' }}
+                style={{ borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)', background: 'var(--accent-primary-subtle)', fontWeight: 600 }}
               >
                 Send
               </button>
@@ -1209,7 +1210,7 @@ export const DecoyPage: React.FC = () => {
               <div className="evidence-header">
                 <span>📁 Submitted File Evidence & Indicators</span>
                 {selectedSession?.file_submissions && selectedSession.file_submissions.length > 0 && (
-                  <span className="badge-pill" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc' }}>
+                  <span className="badge-pill" style={{ background: 'var(--accent-primary-subtle)', color: 'var(--accent-primary)' }}>
                     {selectedSession.file_submissions.length} Artifact(s)
                   </span>
                 )}
@@ -1220,7 +1221,7 @@ export const DecoyPage: React.FC = () => {
                 <div style={{ fontSize: '0.775rem' }}>
                   <span style={{ color: 'var(--text-muted)' }}>malware_hash: </span>
                   {selectedSession?.malware_hash ? (
-                    <code style={{ color: '#38bdf8' }}>{selectedSession.malware_hash}</code>
+                    <code style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{selectedSession.malware_hash}</code>
                   ) : (
                     <span style={{ color: 'var(--text-muted)' }}>None observed</span>
                   )}
@@ -1232,7 +1233,7 @@ export const DecoyPage: React.FC = () => {
                 <div style={{ fontSize: '0.775rem' }}>
                   <span style={{ color: 'var(--text-muted)' }}>c2_address: </span>
                   {selectedSession?.c2_address ? (
-                    <code style={{ color: '#f59e0b' }}>{selectedSession.c2_address}</code>
+                    <code style={{ color: 'var(--accent-review)', fontWeight: 600 }}>{selectedSession.c2_address}</code>
                   ) : (
                     <span style={{ color: 'var(--text-muted)' }}>None observed</span>
                   )}
@@ -1283,7 +1284,7 @@ export const DecoyPage: React.FC = () => {
               {selectedSession &&
                 ((selectedSession.referenced_urls && selectedSession.referenced_urls.length > 0) ||
                   (selectedSession.referenced_files && selectedSession.referenced_files.length > 0)) && (
-                  <div style={{ marginTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.5rem' }}>
+                  <div style={{ marginTop: '0.75rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.5rem' }}>
                     <div style={{ fontSize: '0.725rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.35rem', textTransform: 'uppercase' }}>
                       Command-Line Referenced Items (Separate from Uploads):
                     </div>
@@ -1301,7 +1302,7 @@ export const DecoyPage: React.FC = () => {
                       <div style={{ fontSize: '0.75rem' }}>
                         <span style={{ color: 'var(--text-muted)' }}>Referenced Files: </span>
                         {selectedSession.referenced_files.map((f, fidx) => (
-                          <code key={fidx} style={{ color: '#cbd5e1', marginRight: '0.4rem' }}>
+                          <code key={fidx} style={{ color: 'var(--text-primary)', fontWeight: 600, marginRight: '0.4rem' }}>
                             {f}
                           </code>
                         ))}

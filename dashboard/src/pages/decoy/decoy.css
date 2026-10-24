@@ -23,7 +23,7 @@
 
 .stat-card:hover {
   background: var(--bg-card-hover);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--accent-primary);
   transform: translateY(-2px);
 }
 
@@ -107,12 +107,12 @@
 .banner-title {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .banner-desc {
   font-size: 0.825rem;
-  color: #fca5a5;
+  color: var(--accent-danger);
   margin-top: 0.15rem;
 }
 
@@ -178,7 +178,7 @@
 
 .decoy-table td {
   padding: 0.75rem 0.85rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
 }
 
@@ -188,12 +188,12 @@
 }
 
 .session-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-surface-hover);
 }
 
 .session-row.selected {
-  background: rgba(56, 189, 248, 0.08);
-  border-left: 2px solid var(--accent-cyan);
+  background: var(--accent-primary-subtle);
+  border-left: 2px solid var(--accent-primary);
 }
 
 /* Badges */
@@ -211,34 +211,50 @@
 
 .badge-real {
   background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+[data-theme='dark'] .badge-real {
   color: #34d399;
-  border-color: rgba(16, 185, 129, 0.25);
 }
 
 .badge-ratelimit {
   background: rgba(245, 158, 11, 0.12);
-  color: #fbbf24;
+  color: #d97706;
   border-color: rgba(245, 158, 11, 0.3);
+}
+
+[data-theme='dark'] .badge-ratelimit {
+  color: #fbbf24;
 }
 
 .badge-decoy {
   background: rgba(244, 63, 94, 0.14);
-  color: #fb7185;
+  color: #e11d48;
   border-color: rgba(244, 63, 94, 0.35);
-  box-shadow: 0 0 10px rgba(244, 63, 94, 0.15);
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.1);
+}
+
+[data-theme='dark'] .badge-decoy {
+  color: #fb7185;
 }
 
 .badge-trap {
-  background: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.4);
   animation: pulse-dot 1.8s infinite;
+}
+
+[data-theme='dark'] .badge-trap {
+  color: #fca5a5;
 }
 
 /* Terminal Feed */
 .terminal-window {
   background: #05070a;
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   overflow: hidden;
   display: flex;
@@ -312,8 +328,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
-  background: rgba(13, 18, 29, 0.5);
-  border: 1px dashed var(--border-accent);
+  background: var(--bg-surface-subtle);
+  border: 1px dashed var(--border-medium);
   border-radius: var(--radius-md);
   padding: 1rem;
 }
@@ -325,7 +341,7 @@
 }
 
 .btn-sim {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   color: var(--text-primary);
   font-size: 0.775rem;
@@ -334,17 +350,34 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-sim:hover {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: var(--accent-cyan);
-  color: #fff;
+  background: var(--bg-surface-hover);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.btn-sim-danger {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #dc2626;
 }
 
 .btn-sim-danger:hover {
-  background: rgba(244, 63, 94, 0.15);
-  border-color: var(--accent-rose);
+  background: rgba(239, 68, 68, 0.16);
+  border-color: #dc2626;
+  color: #b91c1c;
+}
+
+[data-theme='dark'] .btn-sim-danger {
+  color: #fca5a5;
+  border-color: rgba(244, 63, 94, 0.35);
+}
+
+[data-theme='dark'] .btn-sim-danger:hover {
+  background: rgba(244, 63, 94, 0.2);
   color: #fff;
 }
 
@@ -354,9 +387,9 @@
   font-size: 0.7rem;
   padding: 0.15rem 0.4rem;
   border-radius: var(--radius-sm);
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  color: #a5b4fc;
+  background: var(--accent-primary-subtle);
+  border: 1px solid var(--border-subtle);
+  color: var(--accent-primary);
   max-width: 170px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -370,11 +403,12 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 0.65rem 1rem;
-  background: rgba(13, 18, 29, 0.7);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   margin-bottom: 1.25rem;
   flex-wrap: wrap;
+  box-shadow: var(--shadow-sm);
 }
 
 .connection-pill {
@@ -435,7 +469,7 @@
   justify-content: space-between;
   margin-bottom: 1.5rem;
   font-size: 0.825rem;
-  color: #fde68a;
+  color: var(--text-primary);
   gap: 1rem;
 }
 
@@ -491,11 +525,12 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  background: rgba(13, 18, 29, 0.6);
+  background: var(--bg-surface-subtle);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 0.75rem 1rem;
   margin-bottom: 0.85rem;
+  color: var(--text-primary);
 }
 
 .gw-score-header {
@@ -503,11 +538,12 @@
   justify-content: space-between;
   align-items: center;
   font-size: 0.775rem;
+  color: var(--text-primary);
 }
 
 .gw-score-meter {
   height: 8px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--border-subtle);
   border-radius: 4px;
   overflow: hidden;
   position: relative;
@@ -525,11 +561,12 @@
 
 /* Evidence & Provenance Section */
 .evidence-card {
-  background: rgba(13, 18, 29, 0.6);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 1rem;
   margin-top: 1rem;
+  box-shadow: var(--shadow-sm);
 }
 
 .evidence-header {
@@ -540,17 +577,27 @@
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 0.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 0.5rem;
 }
 
 .artifact-item {
-  background: rgba(5, 7, 10, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 0.65rem 0.85rem;
   margin-bottom: 0.5rem;
   font-size: 0.775rem;
+  color: var(--text-primary);
+}
+
+.artifact-item strong {
+  color: var(--text-primary);
+}
+
+.artifact-item code {
+  color: var(--accent-primary);
+  font-weight: 600;
 }
 
 .disclaimer-badge {
