@@ -168,7 +168,7 @@ const FALLBACK_CAMPAIGNS: Campaign[] = [
 const FALLBACK_CASES: CaseRequest[] = [
   {
     case_id: 'CASE-2026-001',
-    camera_id: 'CAM-04-MARKET',
+    camera_id: 'CAM-01-NORTH',
     window_id: 'WIN-20261024-1130',
     campaign_id: 'CMP-001',
     status: 'pending',
@@ -176,7 +176,7 @@ const FALLBACK_CASES: CaseRequest[] = [
   },
   {
     case_id: 'CASE-2026-002',
-    camera_id: 'CAM-07-SUBSTATION',
+    camera_id: 'CAM-01-NORTH',
     window_id: 'WIN-20261024-1140',
     campaign_id: 'CMP-002',
     status: 'approved',
@@ -421,7 +421,7 @@ export const CampaignsPage: React.FC = () => {
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState<boolean>(false)
   const [isSubmittingCase, setIsSubmittingCase] = useState<boolean>(false)
   const [registerForm, setRegisterForm] = useState({
-    cameraId: 'CAM-04-MARKET',
+    cameraId: 'CAM-01-NORTH',
     customCameraId: '',
     windowId: '',
     campaignId: 'CMP-001',

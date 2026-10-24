@@ -305,47 +305,36 @@ def register_camera_window_key(camera_id: str, window_id: str, master_key_hex: O
 
 def ensure_case_footage_encrypted(camera_id: str, window_id: str):
     """
-    Ensures at least one encrypted face crop exists on disk for the given
-    camera and window. If none exist or if existing files cannot be decrypted with the
-    window's key, captures an authentic crop directly from the live edge camera feed
+    Captures an authentic live crop directly from the live edge camera feed
     and encrypts it using the synchronized AES-256-GCM window key.
+    Always cleans up stale or sample files so only genuine live frames are stored.
     """
     try:
         import edge
         import cv2
-        import shutil
 
         bundle = CAMERA_WINDOW_KEYS.get((camera_id, window_id))
-        key_bytes = None
-        if bundle:
-            with edge.WINDOW_KEYS_LOCK:
-                key_bytes = edge.WINDOW_KEYS.get((camera_id, window_id))
+        if not bundle:
+            bundle = register_camera_window_key(camera_id, window_id)
 
         target_dir = edge._get_window_storage_dir(camera_id, window_id)
-
-        need_reencrypt = True
-        if os.path.isdir(target_dir) and key_bytes:
-            existing = [f for f in os.listdir(target_dir) if f.endswith(".bin")]
-            if len(existing) > 0:
-                try:
-                    test_dec = edge.decrypt_footage(camera_id, window_id, key_bytes)
-                    if len(test_dec) > 0:
-                        need_reencrypt = False
-                except Exception:
-                    need_reencrypt = True
+        if os.path.isdir(target_dir):
+            for fname in os.listdir(target_dir):
+                if fname.endswith(".bin"):
                     try:
-                        shutil.rmtree(target_dir)
+                        os.remove(os.path.join(target_dir, fname))
                     except Exception:
                         pass
 
-        if need_reencrypt:
-            # Pull unblurred crop directly from the live camera feed
-            crop_bgr = edge.EDGE_MESH.get_live_crop_for_camera(camera_id)
-            if crop_bgr is not None:
-                edge.encrypt_and_store_crop(camera_id, window_id, crop_bgr)
-                print(f"[ESCROW] Encrypted live camera surveillance crop for {camera_id} @ {window_id}")
+        # Pull unblurred crop directly from the live camera feed
+        crop_bgr = edge.EDGE_MESH.get_live_crop_for_camera(camera_id)
+        if crop_bgr is not None:
+            sha256_hash = edge.encrypt_and_store_crop(camera_id, window_id, crop_bgr)
+            print(f"[ESCROW] Encrypted live camera surveillance crop for {camera_id} @ {window_id} ({sha256_hash[:16]}...)")
+            return sha256_hash
     except Exception as exc:
         print(f"[ESCROW] ensure_case_footage_encrypted warning: {exc}")
+    return None
 
 
 # =============================================================================
@@ -359,17 +348,18 @@ def seed_escrow_data():
     UNLOCKED_KEYS.clear()
 
     # Pre-generate scoped keys for cameras
-    register_camera_window_key("CAM-04-MARKET", "WIN-20261024-1130", "d8f3b490c2914102983719028341908239018239018230918209381029381029")
-    register_camera_window_key("CAM-01-NORTH", "WIN-20261024-1130", "a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0")
-    register_camera_window_key("CAM-07-SUBSTATION", "WIN-20261024-1140", "deadbeefcafebabe0123456789abcdef0123456789abcdef0123456789abcdef")
+    register_camera_window_key("CAM-01-NORTH", "WIN-20261024-1130", "d8f3b490c2914102983719028341908239018239018230918209381029381029")
+    register_camera_window_key("CAM-01-NORTH", "WIN-20261024-1140", "deadbeefcafebabe0123456789abcdef0123456789abcdef0123456789abcdef")
+    register_camera_window_key("CAM-04-MARKET", "WIN-20261024-1130", "a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0")
+    register_camera_window_key("CAM-07-SUBSTATION", "WIN-20261024-1140", "c0ffee1234567890abcdef0123456789abcdef0123456789abcdef0123456789")
 
-    ensure_case_footage_encrypted("CAM-04-MARKET", "WIN-20261024-1130")
-    ensure_case_footage_encrypted("CAM-07-SUBSTATION", "WIN-20261024-1140")
+    ensure_case_footage_encrypted("CAM-01-NORTH", "WIN-20261024-1130")
+    ensure_case_footage_encrypted("CAM-01-NORTH", "WIN-20261024-1140")
 
     # Case 1: Active Honeytoken Threat Case (Ready for Drill B - 1 approval in, awaiting 2nd)
     case_1 = schema.CaseRequest(
         case_id="CASE-2026-001",
-        camera_id="CAM-04-MARKET",
+        camera_id="CAM-01-NORTH",
         window_id="WIN-20261024-1130",
         campaign_id="CMP-001",
         status="pending",
@@ -381,7 +371,7 @@ def seed_escrow_data():
     # Case 2: Historical Resolved Case (Approved with 2 approvals)
     case_2 = schema.CaseRequest(
         case_id="CASE-2026-002",
-        camera_id="CAM-07-SUBSTATION",
+        camera_id="CAM-01-NORTH",
         window_id="WIN-20261024-1140",
         campaign_id="CMP-002",
         status="approved",
@@ -393,7 +383,7 @@ def seed_escrow_data():
         "custodian-2-cybercrime": "approve",
     }
     # Reconstruct key for pre-approved case
-    bundle_2 = CAMERA_WINDOW_KEYS.get(("CAM-07-SUBSTATION", "WIN-20261024-1140"))
+    bundle_2 = CAMERA_WINDOW_KEYS.get(("CAM-01-NORTH", "WIN-20261024-1140"))
     if bundle_2:
         shares_to_combine = [(1, bundle_2.shares[1]), (2, bundle_2.shares[2])]
         UNLOCKED_KEYS[case_2.case_id] = shamir_combine_shares(shares_to_combine)
@@ -688,7 +678,7 @@ def get_case_footage(case_id: str):
         import cv2
         import edge
         crops = edge.decrypt_footage(case.camera_id, case.window_id, bytes.fromhex(key_hex))
-        if len(crops) == 0:
+        if len(crops) == 0 or any(c.shape == (1024, 1024, 3) for c in crops):
             ensure_case_footage_encrypted(case.camera_id, case.window_id)
             crops = edge.decrypt_footage(case.camera_id, case.window_id, bytes.fromhex(key_hex))
 

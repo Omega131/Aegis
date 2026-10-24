@@ -990,6 +990,7 @@ class CameraNode:
         self.latest_jpeg_bytes: bytes | None = None
         self.latest_raw_frame: np.ndarray | None = None
         self.latest_unblurred_crop: np.ndarray | None = None
+        self.last_detected_face_crop: np.ndarray | None = None
         if self.latest_frame is not None:
             _, init_buf = cv2.imencode(".jpg", self.latest_frame)
             self.latest_jpeg_bytes = init_buf.tobytes()
@@ -1281,6 +1282,7 @@ class CameraNode:
                     self.latest_raw_frame = frame.copy()
                     if len(face_crops) > 0:
                         self.latest_unblurred_crop = face_crops[0][0].copy()
+                        self.last_detected_face_crop = face_crops[0][0].copy()
                     else:
                         h, w = frame.shape[:2]
                         ch, cw = int(h * 0.60), int(w * 0.50)
@@ -1311,6 +1313,8 @@ class CameraNode:
         Used exclusively for authorized cryptographic escrow unmasking.
         """
         with self._lock:
+            if self.last_detected_face_crop is not None:
+                return self.last_detected_face_crop.copy()
             if self.latest_unblurred_crop is not None:
                 return self.latest_unblurred_crop.copy()
             if self.latest_raw_frame is not None:
@@ -1415,13 +1419,25 @@ class EdgeMesh:
     def get_live_crop_for_camera(self, camera_id: str) -> np.ndarray:
         """
         Retrieves the latest unblurred crop directly from the specified camera's live stream.
+        Prioritizes the active physical webcam (cam_01) if it has a real detected face.
         """
         norm_id = normalize_camera_id(camera_id)
         node = self.nodes.get(norm_id)
+        if node is not None and node.last_detected_face_crop is not None:
+            return node.get_live_unblurred_crop()
+
+        # If primary hardware camera (cam_01) has a real live webcam face crop, use it!
+        if "cam_01" in self.nodes:
+            cam01 = self.nodes["cam_01"]
+            if cam01.last_detected_face_crop is not None:
+                return cam01.get_live_unblurred_crop()
+
         if node is not None:
             return node.get_live_unblurred_crop()
+
         if "cam_01" in self.nodes:
             return self.nodes["cam_01"].get_live_unblurred_crop()
+
         return CameraNode("fallback")._generate_synthetic_frame()
 
 
