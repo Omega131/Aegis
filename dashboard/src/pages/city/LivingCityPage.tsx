@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './city.css';
 import { api, type CameraNode, type DecoyTelemetry } from '../../api/client';
 import { useApp } from '../../context/AppContext';
+import { City3DCanvas } from './City3DCanvas';
 
 export interface CityDevice {
   key: string;
@@ -10,7 +11,7 @@ export interface CityDevice {
   district: string;
   type: 'camera' | 'signal' | 'power' | 'sensor' | 'gateway';
   category: 'vision' | 'decoy' | 'infrastructure';
-  xPercent: number; // Percentage coordinate on the diorama illustration
+  xPercent: number;
   yPercent: number;
   label: string;
   metric: string;
@@ -88,20 +89,13 @@ export const LivingCityPage: React.FC = () => {
     systemHealth,
   } = useApp();
 
-  // Bounded Zoom & Pan State for 2.5D Diorama
+  // 3D Canvas Camera & Viewport State
   const [zoom, setZoom] = useState<number>(1);
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const dragStartRef = useRef<{ startX: number; startY: number; initialPanX: number; initialPanY: number }>({
-    startX: 0,
-    startY: 0,
-    initialPanX: 0,
-    initialPanY: 0,
-  });
-  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [autoOrbit, setAutoOrbit] = useState<boolean>(true);
+  const [selectedDeviceKey, setSelectedDeviceKey] = useState<string | null>(null);
 
-  // 3D Perspective Tilt on Mouse Movement
-  const [tilt, setTilt] = useState<{ rx: number; ry: number }>({ rx: 0, ry: 0 });
+  // Live Screen Projection Coords of 3D Devices
+  const [deviceCoords, setDeviceCoords] = useState<Record<string, { x: number; y: number; visible: boolean }>>({});
 
   // Interactive Layer Filtering
   const [activeCategory, setActiveCategory] = useState<'all' | 'vision' | 'decoy' | 'infrastructure'>('all');
@@ -123,11 +117,14 @@ export const LivingCityPage: React.FC = () => {
   const [demoModalOpen, setDemoModalOpen] = useState<boolean>(false);
   const [drillRunning, setDrillRunning] = useState<boolean>(false);
 
-  // Automatic Traffic Light Cycle
+  // Real-time 3D Model Demo Participation State
+  const [demoScenario, setDemoScenario] = useState<'none' | 'drill_a' | 'drill_b' | 'intrusion'>('none');
+
+  // Automatic Traffic Light Cycle (Cars physically respond in 3D!)
   useEffect(() => {
     const timer = setInterval(() => {
       setTrafficSignalColor((prev) => (prev === 'green' ? 'yellow' : prev === 'yellow' ? 'red' : 'green'));
-    }, 5000);
+    }, 6000);
     return () => clearInterval(timer);
   }, []);
 
@@ -155,6 +152,7 @@ export const LivingCityPage: React.FC = () => {
   // Device Selection & Inspector Opener
   const handleSelectDevice = useCallback(
     (device: CityDevice) => {
+      setSelectedDeviceKey(device.key);
       setSelectedDevice({
         id: device.id,
         name: device.name,
@@ -174,11 +172,7 @@ export const LivingCityPage: React.FC = () => {
   // Smooth Focus-and-Center on Hotspot Click
   const handleFocusAndSelectDevice = useCallback(
     (device: CityDevice) => {
-      // Smoothly center the pan on the device coordinate relative to diorama center (50%, 50%)
-      const targetPanX = ((50 - device.xPercent) / 100) * 380;
-      const targetPanY = ((50 - device.yPercent) / 100) * 240;
-      setPan({ x: targetPanX, y: targetPanY });
-      setZoom(1.45);
+      setSelectedDeviceKey(device.key);
       handleSelectDevice(device);
     },
     [handleSelectDevice]
@@ -189,123 +183,98 @@ export const LivingCityPage: React.FC = () => {
     e.stopPropagation();
     setTrafficSignalColor((prev) => {
       const next = prev === 'green' ? 'yellow' : prev === 'yellow' ? 'red' : 'green';
-      addToast('Traffic Signal Commanded', `SIG-02 controller shifted to ${next.toUpperCase()}`, 'production');
+      addToast('Traffic Signal Commanded', `SIG-02 controller shifted to ${next.toUpperCase()} (3D cars reacting)`, 'production');
       return next;
     });
   };
 
   // Pan & Zoom Controls
   const handleZoomIn = () => {
-    setZoom((prev) => Math.min(prev + 0.25, 2.5));
+    setZoom((prev) => Math.min(prev + 0.25, 2.4));
   };
 
   const handleZoomOut = () => {
-    setZoom((prev) => Math.max(prev - 0.25, 0.85));
+    setZoom((prev) => Math.max(prev - 0.25, 0.7));
   };
 
   const handleResetView = () => {
     setZoom(1);
-    setPan({ x: 0, y: 0 });
-    setTilt({ rx: 0, ry: 0 });
-    addToast('Viewport Reset', 'Restored smart district default view', 'production');
+    setSelectedDeviceKey(null);
+    setDemoScenario('none');
+    setAutoOrbit(true);
+    addToast('3D Viewport Reset', 'Restored default smart district isometric view', 'production');
   };
 
-  const handleCenterView = () => {
-    setPan({ x: 0, y: 0 });
-  };
-
-  // Mouse Wheel Zoom
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = -Math.sign(e.deltaY) * 0.15;
-    setZoom((prev) => Math.min(Math.max(prev + delta, 0.85), 2.5));
-  };
-
-  // Mouse Move: Dynamic 3D Card Perspective Tilt
-  const handleViewportMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDragging) {
-      const deltaX = e.clientX - dragStartRef.current.startX;
-      const deltaY = e.clientY - dragStartRef.current.startY;
-      const maxPan = 180 * zoom;
-      const newX = Math.max(-maxPan, Math.min(maxPan, dragStartRef.current.initialPanX + deltaX));
-      const newY = Math.max(-maxPan, Math.min(maxPan, dragStartRef.current.initialPanY + deltaY));
-      setPan({ x: newX, y: newY });
-      return;
-    }
-
-    if (!viewportRef.current) return;
-    const rect = viewportRef.current.getBoundingClientRect();
-    const xRatio = (e.clientX - rect.left) / rect.width - 0.5; // -0.5 to 0.5
-    const yRatio = (e.clientY - rect.top) / rect.height - 0.5; // -0.5 to 0.5
-
-    // Subtle 3D perspective rotation
-    setTilt({
-      rx: -yRatio * 12,
-      ry: xRatio * 16,
-    });
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    dragStartRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      initialPanX: pan.x,
-      initialPanY: pan.y,
-    };
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  const handleMouseLeave = () => {
-    setIsDragging(false);
-    setTilt({ rx: 0, ry: 0 });
-    setHoveredNode(null);
-  };
-
-  // Hackathon Drill A: Camera Blinding & Access Denial
+  // Hackathon Drill A: Camera Blinding & Access Denial (3D Model Actively Participates!)
   const handleRunDrillA = async () => {
     setDrillRunning(true);
-    addToast('Initiating Drill A', 'Injecting camera blinding anomaly on CAM-01...', 'review');
+    setDemoScenario('drill_a');
+    addToast('3D Defense Active: Drill A', 'Injecting optical blinding anomaly on CAM-01 in 3D...', 'review');
     try {
       await api.simulateCameraBlind('cam_01');
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, 1500));
 
       await api.attemptUnauthorized().catch(() => {
         addToast(
           'Access Rejection Verified (HTTP 403)',
-          'Rogue facial unmask request denied. Cryptographic audit block committed.',
+          'Rogue facial unmask request denied. 3D cryptographic denial shield active.',
           'danger'
         );
       });
+      await new Promise((r) => setTimeout(r, 2000));
     } catch {
       addToast('Drill Executed', 'Drill A pipeline completed.', 'production');
     } finally {
       setDrillRunning(false);
-      setDemoModalOpen(false);
+      setTimeout(() => {
+        setDemoScenario('none');
+      }, 10000);
     }
   };
 
-  // Hackathon Drill B: Honeypot Canary & Shamir Quorum
+  // Hackathon Drill B: Honeypot Canary & Shamir Quorum (3D Model Elevates Phantom Twin!)
   const handleRunDrillB = async () => {
     setDrillRunning(true);
-    addToast('Initiating Drill B', 'Tripping honeytoken canary in Phantom Twin...', 'review');
+    setDemoScenario('drill_b');
+    addToast('3D Defense Active: Drill B', 'Spawning Phantom Twin 3D decoy district & tripping canary...', 'review');
     try {
       await api.triggerDrillB();
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 2000));
       addToast(
         '2-of-3 Quorum Triggered',
-        'Canary breach logged. Multi-party Shamir escrow request generated.',
+        'Canary breach logged in 3D. Threat isolated inside violet honeypot.',
         'production'
       );
+      await new Promise((r) => setTimeout(r, 3000));
     } catch {
       addToast('Drill Executed', 'Drill B pipeline completed.', 'production');
     } finally {
       setDrillRunning(false);
-      setDemoModalOpen(false);
+      setTimeout(() => {
+        setDemoScenario('none');
+      }, 12000);
     }
+  };
+
+  // Full Interactive 3D Intrusion Scenario (Multi-Stage Live Walkthrough)
+  const handleRunFullScenario = async () => {
+    setDrillRunning(true);
+    setDemoScenario('intrusion');
+    addToast('Scenario Phase 1: Threat Detected', 'Incoming unauthorized SSH probe detected at perimeter gateway...', 'review');
+    await new Promise((r) => setTimeout(r, 2000));
+
+    setDemoScenario('drill_b');
+    addToast('Scenario Phase 2: Decoy Redirection', 'Phantom Twin elevated in 3D. Hostile session redirected away from real city.', 'production');
+    await new Promise((r) => setTimeout(r, 2500));
+
+    addToast('Scenario Phase 3: Canary Tripped', 'Honeytoken accessed inside decoy. Forensic payload quarantined.', 'danger');
+    await new Promise((r) => setTimeout(r, 2500));
+
+    addToast('Scenario Phase 4: Quorum Held', 'Real city remains completely untouched. Cryptographic audit committed.', 'production');
+    setDrillRunning(false);
+    setTimeout(() => {
+      setDemoScenario('none');
+    }, 15000);
   };
 
   // Real backend metrics calculation
@@ -315,7 +284,7 @@ export const LivingCityPage: React.FC = () => {
   const connectedTotal = camerasCount + 4; // Camera, Signal, Substation, Sensor, Gateway
 
   // Check if device matches active category filter
-  const isDeviceVisible = (device: CityDevice) => {
+  const isDeviceCategoryMatch = (device: CityDevice) => {
     if (activeCategory === 'all') return true;
     return device.category === activeCategory;
   };
@@ -323,7 +292,7 @@ export const LivingCityPage: React.FC = () => {
   return (
     <div className="living-city-page" id="living-city-overview">
       {/* =======================================================================
-          Hero Section: Expansive Diorama Layout (Bigger & More Interactive)
+          Hero Section: Living 3D Diorama Showcase (35% Text / 65% Interactive 3D Model)
           ======================================================================= */}
       <section className={`city-hero ${theaterMode ? 'theater-mode' : ''}`} aria-label="Hero Introduction">
         {/* Left Column: Heading, Copy, Actions, Connected Dots */}
@@ -379,7 +348,7 @@ export const LivingCityPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: 2.5D Architectural Smart-District Diorama with Interactive Overlays */}
+        {/* Right Column: Real-time 3D Living Smart-District Diorama Canvas */}
         <div className="hero-diorama-col">
           <div className="diorama-frame-wrapper" id="diorama-container">
             {/* Top-Left: Interactive Subsystem Layer Filter */}
@@ -414,78 +383,70 @@ export const LivingCityPage: React.FC = () => {
               </button>
             </div>
 
-            <div
-              ref={viewportRef}
-              className={`diorama-viewport ${isDragging ? 'dragging' : ''}`}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleViewportMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseLeave}
-              onWheel={handleWheel}
-              style={{
-                transform: `rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)`,
-              }}
-            >
-              {/* High-Fidelity 2.5D Architectural Smart-City Diorama Asset */}
-              <img
-                src="/assets/smart_city_diorama.jpg"
-                alt="Architectural Smart City 2.5D Diorama"
-                className={`diorama-image ${duskLighting ? 'dusk-lighting' : ''}`}
-                style={{
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            {/* 3D Scenario HUD Banner (Animates during Demo Drills!) */}
+            {demoScenario !== 'none' && (
+              <div className={`diorama-scenario-banner ${demoScenario}`}>
+                <span className="live-dot pulse-danger" />
+                <span>
+                  {demoScenario === 'drill_a' && '3D ACTIVE DEFENSE: CAM-01 SENSOR BLINDING • 403 CRYPTOGRAPHIC DENIAL'}
+                  {demoScenario === 'drill_b' && '3D ACTIVE DEFENSE: PHANTOM TWIN DECOY ELEVATED • CANARY TRAP ARMED'}
+                  {demoScenario === 'intrusion' && '3D ACTIVE DEFENSE: LIVE INTRUSION REDIRECTION • VIOLET DECOY SANDBOX'}
+                </span>
+                <button
+                  type="button"
+                  className="scenario-banner-btn"
+                  onClick={() => setDemoScenario('none')}
+                >
+                  Reset ↺
+                </button>
+              </div>
+            )}
+
+            {/* Living 3D Canvas Engine Viewport (Replaces static PNG with real 3D model!) */}
+            <div className="diorama-viewport">
+              <City3DCanvas
+                trafficSignalColor={trafficSignalColor}
+                activeCategory={activeCategory}
+                domeVisible={domeVisible}
+                duskLighting={duskLighting}
+                selectedDeviceKey={selectedDeviceKey}
+                onSelectDeviceKey={(key) => {
+                  setSelectedDeviceKey(key);
+                  const dev = CITY_DEVICES.find((d) => d.key === key);
+                  if (dev) handleSelectDevice(dev);
                 }}
-                draggable={false}
+                onDeviceCoordsChange={setDeviceCoords}
+                demoScenario={demoScenario}
+                autoOrbit={autoOrbit}
+                onToggleAutoOrbit={() => setAutoOrbit((prev) => !prev)}
+                zoom={zoom}
+                onZoomChange={setZoom}
               />
 
-              {/* Glowing Protective Green Canopy Arc */}
-              {domeVisible && (
-                <svg
-                  className="protective-dome-svg"
-                  viewBox="0 0 1376 768"
-                  preserveAspectRatio="none"
-                  style={{
-                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translateZ(35px)`,
-                    transformOrigin: 'center center',
-                  }}
-                >
-                  <defs>
-                    <linearGradient id="protectiveDomeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#BFE6C4" stopOpacity="0.4" />
-                      <stop offset="50%" stopColor="#246B45" stopOpacity="0.6" />
-                      <stop offset="100%" stopColor="#BFE6C4" stopOpacity="0.4" />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    d="M 230 450 C 240 180, 1130 180, 1140 450"
-                    className="dome-glow-arc"
-                  />
-                </svg>
-              )}
-
-              {/* Transformed Hotspot Overlays (Cleanly Anchored Without Cluttering Lines) */}
+              {/* Transformed Hotspot Overlays (Pinned to exact 3D coordinates in real-time!) */}
               <div
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translateZ(30px)`,
-                  transformOrigin: 'center center',
                   pointerEvents: 'none',
                 }}
               >
                 {/* 1. CAM-01 Callout Card & Hotspot */}
-                {isDeviceVisible(CITY_DEVICES[0]) && (
+                {isDeviceCategoryMatch(CITY_DEVICES[0]) && (
                   <>
                     <div
                       className="camera-callout-card"
                       style={{
-                        left: `${CITY_DEVICES[0].xPercent}%`,
-                        top: `${CITY_DEVICES[0].yPercent - 7}%`,
+                        position: 'absolute',
+                        left: deviceCoords['camera'] ? `${deviceCoords['camera'].x}px` : `${CITY_DEVICES[0].xPercent}%`,
+                        top: deviceCoords['camera'] ? `${deviceCoords['camera'].y - 28}px` : `${CITY_DEVICES[0].yPercent - 7}%`,
                         transform: 'translate(-50%, -100%)',
                         pointerEvents: 'auto',
+                        opacity: deviceCoords['camera']?.visible !== false ? 1 : 0,
                       }}
                       onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[0])}
                       onMouseEnter={() => setHoveredNode(CITY_DEVICES[0])}
-                      title="Click to focus Edge Sentry camera"
+                      title="Click to focus Edge Sentry camera in 3D"
                     >
                       <span className="live-dot" />
                       <span>CAM-01 Protected</span>
@@ -494,9 +455,11 @@ export const LivingCityPage: React.FC = () => {
                     <div
                       className="hotspot-element"
                       style={{
-                        left: `${CITY_DEVICES[0].xPercent}%`,
-                        top: `${CITY_DEVICES[0].yPercent}%`,
+                        position: 'absolute',
+                        left: deviceCoords['camera'] ? `${deviceCoords['camera'].x}px` : `${CITY_DEVICES[0].xPercent}%`,
+                        top: deviceCoords['camera'] ? `${deviceCoords['camera'].y}px` : `${CITY_DEVICES[0].yPercent}%`,
                         pointerEvents: 'auto',
+                        opacity: deviceCoords['camera']?.visible !== false ? 1 : 0,
                       }}
                       onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[0])}
                       onMouseEnter={() => setHoveredNode(CITY_DEVICES[0])}
@@ -510,20 +473,21 @@ export const LivingCityPage: React.FC = () => {
                 )}
 
                 {/* 2. Smart Signal Hotspot & Pill (Click to Cycle Light!) */}
-                {isDeviceVisible(CITY_DEVICES[1]) && (
+                {isDeviceCategoryMatch(CITY_DEVICES[1]) && (
                   <>
                     <div
                       className="hotspot-pill-label signal-pill"
                       style={{
                         position: 'absolute',
-                        left: `${CITY_DEVICES[1].xPercent}%`,
-                        top: `${CITY_DEVICES[1].yPercent - 6}%`,
+                        left: deviceCoords['signal'] ? `${deviceCoords['signal'].x}px` : `${CITY_DEVICES[1].xPercent}%`,
+                        top: deviceCoords['signal'] ? `${deviceCoords['signal'].y - 24}px` : `${CITY_DEVICES[1].yPercent - 6}%`,
                         transform: 'translate(-50%, -100%)',
                         pointerEvents: 'auto',
+                        opacity: deviceCoords['signal']?.visible !== false ? 1 : 0,
                       }}
                       onClick={handleCycleTrafficLight}
                       onMouseEnter={() => setHoveredNode(CITY_DEVICES[1])}
-                      title="Click to cycle traffic signal light (Green / Yellow / Red)"
+                      title="Click to cycle traffic signal light (Green / Yellow / Red) — 3D cars respond in real time!"
                     >
                       <span className={`label-indicator ${trafficSignalColor}`} />
                       <span>Smart signal</span>
@@ -532,9 +496,11 @@ export const LivingCityPage: React.FC = () => {
                     <div
                       className="hotspot-element"
                       style={{
-                        left: `${CITY_DEVICES[1].xPercent}%`,
-                        top: `${CITY_DEVICES[1].yPercent}%`,
+                        position: 'absolute',
+                        left: deviceCoords['signal'] ? `${deviceCoords['signal'].x}px` : `${CITY_DEVICES[1].xPercent}%`,
+                        top: deviceCoords['signal'] ? `${deviceCoords['signal'].y}px` : `${CITY_DEVICES[1].yPercent}%`,
                         pointerEvents: 'auto',
+                        opacity: deviceCoords['signal']?.visible !== false ? 1 : 0,
                       }}
                       onClick={handleCycleTrafficLight}
                       onMouseEnter={() => setHoveredNode(CITY_DEVICES[1])}
@@ -558,16 +524,17 @@ export const LivingCityPage: React.FC = () => {
                 )}
 
                 {/* 3. Aegis Gateway Hotspot & Pill */}
-                {isDeviceVisible(CITY_DEVICES[2]) && (
+                {isDeviceCategoryMatch(CITY_DEVICES[2]) && (
                   <>
                     <div
                       className="hotspot-pill-label"
                       style={{
                         position: 'absolute',
-                        left: `${CITY_DEVICES[2].xPercent}%`,
-                        top: `${CITY_DEVICES[2].yPercent - 7}%`,
+                        left: deviceCoords['gateway'] ? `${deviceCoords['gateway'].x}px` : `${CITY_DEVICES[2].xPercent}%`,
+                        top: deviceCoords['gateway'] ? `${deviceCoords['gateway'].y - 28}px` : `${CITY_DEVICES[2].yPercent - 7}%`,
                         transform: 'translate(-50%, -100%)',
                         pointerEvents: 'auto',
+                        opacity: deviceCoords['gateway']?.visible !== false ? 1 : 0,
                       }}
                       onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[2])}
                       onMouseEnter={() => setHoveredNode(CITY_DEVICES[2])}
@@ -579,9 +546,11 @@ export const LivingCityPage: React.FC = () => {
                     <div
                       className="hotspot-element"
                       style={{
-                        left: `${CITY_DEVICES[2].xPercent}%`,
-                        top: `${CITY_DEVICES[2].yPercent}%`,
+                        position: 'absolute',
+                        left: deviceCoords['gateway'] ? `${deviceCoords['gateway'].x}px` : `${CITY_DEVICES[2].xPercent}%`,
+                        top: deviceCoords['gateway'] ? `${deviceCoords['gateway'].y}px` : `${CITY_DEVICES[2].yPercent}%`,
                         pointerEvents: 'auto',
+                        opacity: deviceCoords['gateway']?.visible !== false ? 1 : 0,
                       }}
                       onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[2])}
                       onMouseEnter={() => setHoveredNode(CITY_DEVICES[2])}
@@ -595,15 +564,16 @@ export const LivingCityPage: React.FC = () => {
                 )}
 
                 {/* 4. Solar Substation Hotspot */}
-                {isDeviceVisible(CITY_DEVICES[3]) && (
+                {isDeviceCategoryMatch(CITY_DEVICES[3]) && (
                   <div
                     className="hotspot-pill-label"
                     style={{
                       position: 'absolute',
-                      left: `${CITY_DEVICES[3].xPercent}%`,
-                      top: `${CITY_DEVICES[3].yPercent - 6}%`,
+                      left: deviceCoords['power'] ? `${deviceCoords['power'].x}px` : `${CITY_DEVICES[3].xPercent}%`,
+                      top: deviceCoords['power'] ? `${deviceCoords['power'].y - 24}px` : `${CITY_DEVICES[3].yPercent - 6}%`,
                       transform: 'translate(-50%, -100%)',
                       pointerEvents: 'auto',
+                      opacity: deviceCoords['power']?.visible !== false ? 1 : 0,
                     }}
                     onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[3])}
                     onMouseEnter={() => setHoveredNode(CITY_DEVICES[3])}
@@ -614,15 +584,16 @@ export const LivingCityPage: React.FC = () => {
                 )}
 
                 {/* 5. Environmental Sensor Hotspot */}
-                {isDeviceVisible(CITY_DEVICES[4]) && (
+                {isDeviceCategoryMatch(CITY_DEVICES[4]) && (
                   <div
                     className="hotspot-pill-label"
                     style={{
                       position: 'absolute',
-                      left: `${CITY_DEVICES[4].xPercent}%`,
-                      top: `${CITY_DEVICES[4].yPercent - 6}%`,
+                      left: deviceCoords['sensor'] ? `${deviceCoords['sensor'].x}px` : `${CITY_DEVICES[4].xPercent}%`,
+                      top: deviceCoords['sensor'] ? `${deviceCoords['sensor'].y - 24}px` : `${CITY_DEVICES[4].yPercent - 6}%`,
                       transform: 'translate(-50%, -100%)',
                       pointerEvents: 'auto',
+                      opacity: deviceCoords['sensor']?.visible !== false ? 1 : 0,
                     }}
                     onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[4])}
                     onMouseEnter={() => setHoveredNode(CITY_DEVICES[4])}
@@ -637,8 +608,8 @@ export const LivingCityPage: React.FC = () => {
                   <div
                     className="hotspot-hover-card"
                     style={{
-                      left: `${hoveredNode.xPercent}%`,
-                      top: `${Math.max(hoveredNode.yPercent - 18, 12)}%`,
+                      left: deviceCoords[hoveredNode.key] ? `${deviceCoords[hoveredNode.key].x}px` : `${hoveredNode.xPercent}%`,
+                      top: deviceCoords[hoveredNode.key] ? `${Math.max(deviceCoords[hoveredNode.key].y - 60, 40)}px` : `${Math.max(hoveredNode.yPercent - 18, 12)}%`,
                       transform: 'translate(-50%, -100%)',
                     }}
                   >
@@ -669,11 +640,26 @@ export const LivingCityPage: React.FC = () => {
                   type="button"
                   className="diorama-ctrl-btn"
                   onClick={handleResetView}
-                  title="Reset view (↺)"
+                  title="Reset view to default isometric (↺)"
                   aria-label="Reset view"
                 >
                   ↺
                 </button>
+
+                {/* Toggle Auto Orbit Rotation */}
+                <button
+                  type="button"
+                  className={`diorama-ctrl-btn ${autoOrbit ? 'active' : ''}`}
+                  onClick={() => {
+                    setAutoOrbit(!autoOrbit);
+                    addToast('Orbit Mode', !autoOrbit ? 'Cinematic 3D orbit enabled' : 'Free camera lock active', 'production');
+                  }}
+                  title={autoOrbit ? 'Pause 3D Orbit' : 'Start Cinematic 3D Orbit'}
+                  aria-label="Toggle Auto Orbit"
+                >
+                  ↻
+                </button>
+
                 <button
                   type="button"
                   className="diorama-ctrl-btn"
@@ -692,17 +678,26 @@ export const LivingCityPage: React.FC = () => {
                 >
                   −
                 </button>
-                <button
-                  type="button"
-                  className="diorama-ctrl-btn"
-                  onClick={handleCenterView}
-                  title="Center view (⊙)"
-                  aria-label="Center view"
-                >
-                  ⊙
-                </button>
 
                 <div style={{ width: '1px', height: '18px', background: 'var(--border-subtle)', margin: '0 2px' }} />
+
+                {/* Quick Trigger 3D Defense Simulation */}
+                <button
+                  type="button"
+                  className={`diorama-ctrl-btn ${demoScenario !== 'none' ? 'active' : ''}`}
+                  onClick={() => {
+                    if (demoScenario === 'none') {
+                      handleRunDrillB();
+                    } else {
+                      setDemoScenario('none');
+                    }
+                  }}
+                  title="Trigger 3D Defense Intrusion Simulation (Phantom Twin)"
+                  aria-label="3D Defense Scenario"
+                  style={{ color: demoScenario !== 'none' ? '#7C3AED' : undefined }}
+                >
+                  ⚡
+                </button>
 
                 {/* Toggle Dome Shield */}
                 <button
@@ -746,46 +741,25 @@ export const LivingCityPage: React.FC = () => {
                   ⛶
                 </button>
               </div>
-              <span className="diorama-ctrl-hint">Drag or scroll to explore • Hover or click nodes</span>
+              <span className="diorama-ctrl-hint">Drag 360° to orbit • Scroll to zoom • Click nodes</span>
             </div>
           </div>
         </div>
       </section>
 
       {/* =======================================================================
-          Accessible Keyboard Device List Alternative
+          Summary Section: "Your network, at a glance"
           ======================================================================= */}
-      <nav className="city-accessible-device-tray" aria-label="District IoT Devices Quick List">
-        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
-          DEVICES:
-        </span>
-        {CITY_DEVICES.map((device) => (
-          <button
-            key={device.id}
-            type="button"
-            className="accessible-device-chip"
-            onClick={() => handleFocusAndSelectDevice(device)}
-          >
-            <span style={{ color: 'var(--accent-primary)' }}>●</span>
-            <span>{device.id}</span>
-            <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>({device.label})</span>
-          </button>
-        ))}
-      </nav>
-
-      {/* =======================================================================
-          Summary Section: "Your network, at a glance" (4 Summary KPI Panels)
-          ======================================================================= */}
-      <section className="network-glance-section" aria-label="Network Health Summary">
+      <section className="network-glance-section" aria-label="Network Overview At A Glance">
         <div className="glance-header-row">
           <h2 className="glance-title">Your network, at a glance</h2>
           <button
             type="button"
-            className="glance-link"
-            style={{ background: 'transparent', border: 'none', padding: 0 }}
-            onClick={() => setActiveTab('evidence')}
+            className="glance-link btn-ghost"
+            onClick={() => setActiveTab('cameras')}
+            aria-label="Open full fleet registry"
           >
-            <span>View activity</span>
+            <span>Full node fleet</span>
             <span aria-hidden="true">→</span>
           </button>
         </div>
@@ -909,13 +883,13 @@ export const LivingCityPage: React.FC = () => {
         <span>AEIGS / SMART DISTRICT</span>
         <span>
           {systemHealth?.status === 'ok'
-            ? 'LIVE TELEMETRY • FASTAPI ACTIVE'
+            ? 'LIVE TELEMETRY • 3D LIVING ENGINE ACTIVE'
             : 'DESIGN PREVIEW • SAMPLE DATA'}
         </span>
       </footer>
 
       {/* =======================================================================
-          Authorized Demo Workflow Modal Dialog
+          Authorized Demo Workflow Modal Dialog (With Full 3D Participation!)
           ======================================================================= */}
       {demoModalOpen && (
         <div className="demo-dialog-backdrop" onClick={() => setDemoModalOpen(false)}>
@@ -927,9 +901,14 @@ export const LivingCityPage: React.FC = () => {
             aria-labelledby="demo-dialog-heading"
           >
             <div className="demo-dialog-header">
-              <h3 className="demo-dialog-title" id="demo-dialog-heading">
-                Authorized Defense Drills
-              </h3>
+              <div>
+                <h3 className="demo-dialog-title" id="demo-dialog-heading">
+                  Authorized Defense Drills (Live 3D Simulation)
+                </h3>
+                <span style={{ fontSize: '0.725rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
+                  ● 3D Living Model Actively Synchronized
+                </span>
+              </div>
               <button
                 type="button"
                 className="btn btn-ghost btn-xs"
@@ -942,38 +921,84 @@ export const LivingCityPage: React.FC = () => {
             </div>
 
             <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-              Execute live security validation scenarios against the unified Aeigs backend with full cryptographic logging.
+              Execute live security validation scenarios. Watch the 3D metropolitan model react in real time to optical sensor blinding and honeypot entrapment!
             </p>
 
             {/* Drill A */}
             <div className="demo-drill-card">
-              <div className="demo-drill-title">Drill A: Camera Blinding & Access Denial</div>
-              <div className="demo-drill-desc">
-                Simulates optical laser sensor saturation on CAM-01, injects anomaly alert into the audit ledger, and verifies that an unauthorized facial unmask request is rejected with HTTP 403.
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                <div className="demo-drill-title">Drill A: Camera Blinding & Access Denial</div>
+                <span className="badge-pill" style={{ background: 'var(--accent-primary-subtle)', color: 'var(--accent-primary)', fontSize: '0.7rem' }}>
+                  3D Laser Sweep & Denial Shield
+                </span>
               </div>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                onClick={handleRunDrillA}
-                disabled={drillRunning}
-              >
-                {drillRunning ? 'Executing Drill...' : 'Run Drill A (Blinding & Denial) ↗'}
-              </button>
+              <div className="demo-drill-desc">
+                Simulates optical laser sensor saturation on CAM-01 in 3D. A holographic denial shield emerges with HTTP 403, locking sensitive face evidence.
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  onClick={() => {
+                    handleRunDrillA();
+                    setDemoModalOpen(false);
+                  }}
+                  disabled={drillRunning}
+                >
+                  {drillRunning ? 'Executing Drill...' : '▶ Watch 3D Sensor Blinding Drill'}
+                </button>
+              </div>
             </div>
 
             {/* Drill B */}
             <div className="demo-drill-card">
-              <div className="demo-drill-title">Drill B: Honeypot Canary & Shamir Quorum</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                <div className="demo-drill-title">Drill B: Honeypot Canary & Shamir Quorum</div>
+                <span className="badge-pill" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8B5CF6', fontSize: '0.7rem' }}>
+                  Elevates Phantom Twin 3D District
+                </span>
+              </div>
               <div className="demo-drill-desc">
-                Trips a canary honeytoken inside Phantom Twin SSH decoy, captures forensic artifacts, and generates a legitimate 2-of-3 multi-party escrow unmask request.
+                The violet Phantom Twin decoy rises beside the city. Hostile intruder packets are dynamically bent into the honeypot, tripping the canary while the real city continues operating untouched!
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    handleRunDrillB();
+                    setDemoModalOpen(false);
+                  }}
+                  disabled={drillRunning}
+                >
+                  {drillRunning ? 'Executing Drill...' : '▶ Watch 3D Phantom Redirection Drill'}
+                </button>
+              </div>
+            </div>
+
+            {/* Full Scenario */}
+            <div className="demo-drill-card" style={{ borderColor: 'var(--accent-primary)', background: 'var(--accent-primary-subtle)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                <div className="demo-drill-title" style={{ color: 'var(--accent-primary)' }}>
+                  ⚡ Complete 4-Phase Cyber Defense Walkthrough
+                </div>
+                <span className="badge-pill" style={{ background: 'var(--bg-surface)', color: 'var(--accent-primary)', fontSize: '0.7rem', border: '1px solid var(--border-medium)' }}>
+                  Full Interactive Scenario
+                </span>
+              </div>
+              <div className="demo-drill-desc" style={{ color: 'var(--text-primary)' }}>
+                Runs the entire end-to-end intrusion sequence across the 3D model: Anomaly detection $\rightarrow$ Phantom Twin rising $\rightarrow$ Canary trap $\rightarrow$ Quorum audit verification.
               </div>
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                onClick={handleRunDrillB}
+                onClick={() => {
+                  handleRunFullScenario();
+                  setDemoModalOpen(false);
+                }}
                 disabled={drillRunning}
               >
-                {drillRunning ? 'Executing Drill...' : 'Run Drill B (Honeypot & Quorum) ↗'}
+                {drillRunning ? 'Running Walkthrough...' : '▶ Run Complete 3D Walkthrough ↗'}
               </button>
             </div>
           </div>
