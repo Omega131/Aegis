@@ -32,14 +32,14 @@
   --text-muted: #7D9285;          /* Dimmed labels and timestamps */
   --text-inverse: #FFFFFF;        /* Text on dark buttons */
 
-  /* Borders */
-  --border-subtle: #DCE7DE;       /* Standard borders: #DCE7DE */
-  --border-medium: #D0DFD3;
-  --border-strong: #A8C4AD;
-  --border-production: #BFE6C4;
-  --border-deception: #DCE7DE;
-  --border-danger: rgba(220, 38, 38, 0.35);
-  --border-review: rgba(217, 119, 6, 0.35);
+  /* Borders — Refined Architectural Contrast */
+  --border-subtle: #D2DFD4;       /* Clean subtle borders: #D2DFD4 */
+  --border-medium: #B8CEBC;       /* Crisp card and container boundaries: #B8CEBC */
+  --border-strong: #96B49C;       /* Strong structural accents: #96B49C */
+  --border-production: #A9D5AF;
+  --border-deception: #D2DFD4;
+  --border-danger: rgba(220, 38, 38, 0.45);
+  --border-review: rgba(217, 119, 6, 0.45);
 
   /* Backward Compatibility Aliases */
   --accent-cyan: #246B45;
@@ -128,13 +128,13 @@
   --text-inverse: #0B130E;
 
   /* Borders */
-  --border-subtle: #1F3528;
-  --border-medium: #2A4535;
-  --border-strong: #3D634D;
+  --border-subtle: #243D2F;
+  --border-medium: #31523F;
+  --border-strong: #457359;
   --border-production: #10B981;
-  --border-deception: #1F3528;
-  --border-danger: rgba(239, 68, 68, 0.45);
-  --border-review: rgba(245, 158, 11, 0.45);
+  --border-deception: #243D2F;
+  --border-danger: rgba(239, 68, 68, 0.55);
+  --border-review: rgba(245, 158, 11, 0.55);
 
   /* Shadows */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -684,7 +684,7 @@ code, kbd, samp, pre {
 
 .card {
   background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
   padding: 1.5rem;
   box-shadow: var(--shadow-sm);
@@ -692,7 +692,8 @@ code, kbd, samp, pre {
 }
 
 .card:hover {
-  border-color: var(--border-medium);
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-md);
 }
 
 .card-elevated {
@@ -782,7 +783,9 @@ code, kbd, samp, pre {
   align-items: flex-start;
   justify-content: space-between;
   gap: 1.5rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border-medium);
 }
 
 .page-title-wrap h1 {

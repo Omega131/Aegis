@@ -643,8 +643,12 @@ export const DecoyPage: React.FC = () => {
     <div className="page-container" id="page-decoy">
       {/* Page Header */}
       <div className="page-header">
-        <div className="badge owner-badge">Owner: Member B — Stage 2 (Phantom Twin & Gateway)</div>
-        <h1 id="heading-decoy">Decoy Activity & Gateway</h1>
+        <div className="page-title-wrap">
+          <div className="owner-badge" style={{ marginBottom: '0.45rem', display: 'inline-block' }}>
+            Owner: Member B — Stage 2 (Phantom Twin & Gateway)
+          </div>
+          <h1 id="heading-decoy">Decoy Activity & Gateway</h1>
+        </div>
         <p className="page-desc">
           Perimeter connection routing, in-memory IoT honeypot sandbox, multi-depth canary honeytokens, and
           static file evidence collection.
@@ -878,17 +882,15 @@ export const DecoyPage: React.FC = () => {
                 <span>🛡️</span>
                 <span>Perimeter Telemetry</span>
               </div>
-              <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <div className="tab-group">
                 <button
-                  className={`btn-sim ${activeTab === 'sessions' ? 'btn-sim-danger' : ''}`}
-                  style={activeTab === 'sessions' ? { borderColor: '#38bdf8', color: '#38bdf8' } : {}}
+                  className={`btn-tab ${activeTab === 'sessions' ? 'active' : ''}`}
                   onClick={() => setActiveTab('sessions')}
                 >
                   Honeypot Sessions ({sessions.length})
                 </button>
                 <button
-                  className={`btn-sim ${activeTab === 'routes' ? 'btn-sim-danger' : ''}`}
-                  style={activeTab === 'routes' ? { borderColor: '#38bdf8', color: '#38bdf8' } : {}}
+                  className={`btn-tab ${activeTab === 'routes' ? 'active' : ''}`}
                   onClick={() => setActiveTab('routes')}
                 >
                   Route Decisions ({routes.length})
@@ -992,12 +994,12 @@ export const DecoyPage: React.FC = () => {
 
             {/* Drill Simulation Controls */}
             <div className="sim-controls">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
+              <div className="sim-header">
                 <span
                   style={{
                     fontSize: '0.75rem',
-                    fontWeight: 600,
-                    color: 'var(--text-muted)',
+                    fontWeight: 700,
+                    color: 'var(--text-primary)',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                   }}
@@ -1187,9 +1189,9 @@ export const DecoyPage: React.FC = () => {
                 onChange={(e) => setCustomCmd(e.target.value)}
                 style={{
                   flex: 1,
-                  padding: '0.55rem 0.85rem',
+                  padding: '0.6rem 0.85rem',
                   background: 'var(--bg-surface-subtle)',
-                  border: '1px solid var(--border-subtle)',
+                  border: '1.5px solid var(--border-medium)',
                   borderRadius: 'var(--radius-sm)',
                   color: 'var(--text-primary)',
                   fontFamily: 'var(--font-mono)',
@@ -1199,7 +1201,13 @@ export const DecoyPage: React.FC = () => {
               <button
                 type="submit"
                 className="btn-sim"
-                style={{ borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)', background: 'var(--accent-primary-subtle)', fontWeight: 600 }}
+                style={{
+                  borderColor: 'var(--accent-primary)',
+                  color: 'var(--accent-primary)',
+                  background: 'var(--accent-primary-subtle)',
+                  fontWeight: 700,
+                  padding: '0.6rem 1.15rem',
+                }}
               >
                 Send
               </button>
