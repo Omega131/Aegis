@@ -16,6 +16,9 @@ import time
 from typing import Any
 import urllib.request
 
+# FastAPI router and HTTP utilities
+from fastapi import APIRouter, HTTPException, Query, Response
+
 # Cryptography for authenticated symmetric encryption (AES-256-GCM)
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -839,11 +842,36 @@ class CameraNode:
         )
         self.prev_frame: np.ndarray | None = None
 
+        # Simulation override for live demo drills ('blind', 'freeze', or None)
+        self._simulation_override: str | None = None
+        self._frozen_frame_cache: np.ndarray | None = None
+
         # Pre-populate initial blurred frame buffer so the node is immediately healthy on launch
         self.latest_frame = self._generate_synthetic_frame()
         self.last_frame_time = time.time()
 
         print(f"[NODE-INIT] CameraNode created: {self.camera_id}")
+
+    def simulate_anomaly(self, anomaly: str) -> None:
+        """
+        Overrides frame generation to trigger live blinding or freezing anomalies during demo drills.
+        anomaly can be 'blind', 'freeze', or 'recover'/'reset'.
+        """
+        with self._lock:
+            if anomaly in ("recover", "reset", "normal"):
+                self._simulation_override = None
+                self._frozen_frame_cache = None
+                print(f"[DRILL] Reset simulation override on {self.camera_id}. Returning to normal feed.")
+            elif anomaly == "blind":
+                self._simulation_override = "blind"
+                print(f"[DRILL] Simulating CAMERA BLINDING on {self.camera_id}!")
+            elif anomaly == "freeze":
+                self._simulation_override = "freeze"
+                if self.latest_frame is not None:
+                    self._frozen_frame_cache = self.latest_frame.copy()
+                else:
+                    self._frozen_frame_cache = self._generate_synthetic_frame()
+                print(f"[DRILL] Simulating CAMERA FREEZING on {self.camera_id}!")
 
     @property
     def status(self) -> str:
@@ -1018,6 +1046,19 @@ class CameraNode:
             if frame is None:
                 frame = self._generate_synthetic_frame()
 
+            # Step 2b: Apply demo drill simulation overrides if active
+            with self._lock:
+                sim_mode = self._simulation_override
+                sim_frozen_frame = self._frozen_frame_cache
+
+            if sim_mode == "blind":
+                # Create pitch dark frame to trigger camera_blinded anomaly
+                frame = np.full_like(frame, 5)
+            elif sim_mode == "freeze":
+                # Repeat identical cached frame to trigger camera_frozen anomaly
+                if sim_frozen_frame is not None:
+                    frame = sim_frozen_frame.copy()
+
             # Step 3: Run face detection and strong privacy blurring
             blurred_frame, face_crops = detect_and_blur_faces(frame)
 
@@ -1147,7 +1188,171 @@ class EdgeMesh:
 
 
 # =============================================================================
-# 7. SELF-TEST
+# 7. FASTAPI APIRouter & SERVICE LIFECYCLE
+# =============================================================================
+# -----------------------------------------------------------------------------
+# CORS CONFIGURATION NOTE FOR VITE DASHBOARD (PORT 5173):
+# -----------------------------------------------------------------------------
+# When main.py starts the FastAPI application, CORS must allow the Vite frontend
+# dev server running at http://localhost:5173 and http://127.0.0.1:5173.
+#
+# Integration in main.py:
+#   from fastapi import FastAPI
+#   from fastapi.middleware.cors import CORSMiddleware
+#   import edge
+#
+#   app = FastAPI()
+#
+#   app.add_middleware(
+#       CORSMiddleware,
+#       allow_origins=[
+#           "http://localhost:5173",
+#           "http://127.0.0.1:5173",
+#           "http://localhost:3000",
+#       ],
+#       allow_credentials=True,
+#       allow_methods=["*"],
+#       allow_headers=["*"],
+#   )
+#
+#   # Wire edge camera endpoints under /api/cameras:
+#   app.include_router(edge.router)
+#
+#   # Start and stop camera nodes along with the FastAPI lifecycle:
+#   @app.on_event("startup")
+#   def on_startup():
+#       edge.start_edge()
+#
+#   @app.on_event("shutdown")
+#   def on_shutdown():
+#       edge.stop_edge()
+# -----------------------------------------------------------------------------
+
+# Global singleton EdgeMesh instance used by API endpoints
+EDGE_MESH = EdgeMesh(num_nodes=NUM_NODES, video_source=VIDEO_SOURCE)
+
+
+def start_edge() -> None:
+    """
+    Startup helper function for main.py to start all camera nodes in the mesh.
+    """
+    print("[EDGE-STARTUP] Starting all EdgeMesh camera nodes...")
+    EDGE_MESH.start_all()
+
+
+def stop_edge() -> None:
+    """
+    Shutdown helper function for main.py to cleanly terminate all camera nodes.
+    """
+    print("[EDGE-SHUTDOWN] Stopping all EdgeMesh camera nodes...")
+    EDGE_MESH.stop_all()
+
+
+# FastAPI Router with prefix "/api/cameras"
+router = APIRouter(prefix="/api/cameras", tags=["cameras"])
+
+
+@router.get("", response_model=list[dict[str, Any]])
+@router.get("/", response_model=list[dict[str, Any]], include_in_schema=False)
+def list_cameras() -> list[dict[str, Any]]:
+    """
+    GET /api/cameras
+    Returns list of camera nodes from EdgeMesh.get_status().
+    Each dict contains: camera_id, status, health, last_event, faces_blurred_count.
+    """
+    return EDGE_MESH.get_status()
+
+
+@router.get("/events", response_model=list[CameraEvent])
+def get_camera_events(limit: int = Query(default=50, ge=1, le=500)) -> list[CameraEvent]:
+    """
+    GET /api/cameras/events?limit=50
+    Returns the latest CameraEvents from the thread-safe in-memory log as JSON.
+    Sorted with newest events first.
+    """
+    with EVENT_LOG_LOCK:
+        # Slice latest events up to the requested limit
+        events_list = list(EVENT_LOG)[-limit:]
+        # Reverse order so newest events are at the top
+        events_list.reverse()
+    return events_list
+
+
+@router.get("/{camera_id}/frame")
+def get_camera_frame(camera_id: str) -> Response:
+    """
+    GET /api/cameras/{camera_id}/frame
+    Returns the latest BLURRED frame for camera_id as image/jpeg.
+    Raw unblurred frames are never exposed outside the node.
+    """
+    jpeg_bytes = EDGE_MESH.get_latest_jpeg(camera_id)
+    if jpeg_bytes is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Camera '{camera_id}' not found or no frame available yet.",
+        )
+    return Response(content=jpeg_bytes, media_type="image/jpeg")
+
+
+@router.post("/start")
+def start_mesh_api() -> dict[str, Any]:
+    """
+    POST /api/cameras/start
+    Starts the whole edge mesh.
+    """
+    start_edge()
+    return {
+        "status": "started",
+        "nodes": len(EDGE_MESH.nodes),
+        "message": f"Started {len(EDGE_MESH.nodes)} camera nodes.",
+    }
+
+
+@router.post("/stop")
+def stop_mesh_api() -> dict[str, Any]:
+    """
+    POST /api/cameras/stop
+    Stops the whole edge mesh.
+    """
+    stop_edge()
+    return {
+        "status": "stopped",
+        "message": "Stopped all camera nodes in the mesh.",
+    }
+
+
+@router.post("/{camera_id}/simulate/{anomaly}")
+def simulate_anomaly_api(camera_id: str, anomaly: str) -> dict[str, Any]:
+    """
+    POST /api/cameras/{camera_id}/simulate/{anomaly}
+    Triggers simulated camera blinding or freezing on a specific camera node,
+    enabling live anomaly detection drills in the dashboard.
+    anomaly: 'blind' or 'freeze' (or 'recover' to reset).
+    """
+    node = EDGE_MESH.nodes.get(camera_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
+
+    valid_anomalies = ("blind", "freeze", "recover", "reset")
+    action = anomaly.lower()
+    if action not in valid_anomalies:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid anomaly '{anomaly}'. Must be one of: {valid_anomalies}",
+        )
+
+    # Trigger override on node
+    node.simulate_anomaly(action)
+    return {
+        "camera_id": camera_id,
+        "action": action,
+        "status": "simulating",
+        "message": f"Triggered '{action}' simulation on {camera_id}.",
+    }
+
+
+# =============================================================================
+# 8. SELF-TEST
 # =============================================================================
 if __name__ == "__main__":
     print("\n==================================================================")
@@ -1402,6 +1607,39 @@ if __name__ == "__main__":
 
     assert wrong_key_failed_cleanly, "Expected ValueError when decrypting with incorrect key!"
     print("     [OK] Escrow decryption security verified: wrong key rejected with clear ValueError.")
+
+    # -------------------------------------------------------------------------
+    # TEST 6: FastAPI APIRouter Endpoints & Demo Drill Simulation
+    # -------------------------------------------------------------------------
+    print("\n[TEST 6] Testing FastAPI APIRouter Endpoints & Simulation Drill...")
+
+    # 1. Test list_cameras endpoint (GET /api/cameras)
+    status_api = list_cameras()
+    assert len(status_api) == NUM_NODES, f"Expected {NUM_NODES} nodes, got {len(status_api)}"
+    print(f"     [OK] list_cameras returned {len(status_api)} nodes.")
+
+    # 2. Test get_camera_events endpoint (GET /api/cameras/events)
+    events_api = get_camera_events(limit=10)
+    assert isinstance(events_api, list)
+    print(f"     [OK] get_camera_events returned {len(events_api)} events.")
+
+    # 3. Test get_camera_frame endpoint (GET /api/cameras/{camera_id}/frame)
+    frame_api_resp = get_camera_frame("cam_01")
+    assert frame_api_resp.media_type == "image/jpeg"
+    assert len(frame_api_resp.body) > 0
+    print(f"     [OK] get_camera_frame returned valid JPEG ({len(frame_api_resp.body)} bytes).")
+
+    # 4. Test simulate_anomaly_api endpoint (POST /api/cameras/{id}/simulate/blind)
+    blind_drill = simulate_anomaly_api("cam_01", "blind")
+    assert blind_drill["status"] == "simulating"
+    assert blind_drill["action"] == "blind"
+    print("     [OK] simulate_anomaly_api 'blind' triggered successfully.")
+
+    # 5. Test simulate_anomaly_api endpoint (POST /api/cameras/{id}/simulate/recover)
+    recover_drill = simulate_anomaly_api("cam_01", "recover")
+    assert recover_drill["status"] == "simulating"
+    assert recover_drill["action"] == "recover"
+    print("     [OK] simulate_anomaly_api 'recover' triggered successfully.")
 
     print("\n==================================================================")
     print("ALL EDGE.PY SELF-TESTS COMPLETED SUCCESSFULLY!")
