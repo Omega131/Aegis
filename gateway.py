@@ -47,6 +47,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from fastapi import APIRouter
+from pydantic import BaseModel
+
 import schema
 
 
@@ -544,6 +547,52 @@ def get_gateway_summary() -> Dict[str, Any]:
         "allowlist_count": len(_router.config.allowlist),
         "recent_decisions": [d.model_dump() for d in _router.decision_history[-10:]],
     }
+
+
+# =============================================================================
+# Gateway FastAPI APIRouter
+# =============================================================================
+
+gateway_router = APIRouter(prefix="/api/gateway", tags=["gateway"])
+
+
+class RouteEvaluationRequest(BaseModel):
+    source_ip: str
+    service: str = "ssh"
+    username: Optional[str] = None
+    password: Optional[str] = None
+    is_login_failure: bool = False
+
+
+@gateway_router.post("/route")
+async def evaluate_route_endpoint(req: RouteEvaluationRequest) -> schema.RouteDecision:
+    """Evaluate and compute a RouteDecision for the given source."""
+    creds = (req.username, req.password) if (req.username and req.password) else None
+    return evaluate_route(
+        source_ip=req.source_ip,
+        service=req.service,
+        attempted_creds=creds,
+        is_login_failure=req.is_login_failure,
+    )
+
+
+@gateway_router.get("/decisions")
+async def get_decisions_endpoint() -> List[schema.RouteDecision]:
+    """Retrieve history of all computed route decisions."""
+    return get_all_decisions()
+
+
+@gateway_router.get("/summary")
+async def get_summary_endpoint() -> Dict[str, Any]:
+    """Retrieve gateway summary metrics for dashboard."""
+    return get_gateway_summary()
+
+
+@gateway_router.post("/reset")
+async def reset_gateway_endpoint() -> Dict[str, str]:
+    """Reset gateway routing and state."""
+    reset_gateway()
+    return {"status": "reset"}
 
 
 # =============================================================================

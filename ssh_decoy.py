@@ -44,6 +44,7 @@ DEFAULT_SSH_HOST = "127.0.0.1"  # Bound to loopback by default for safety
 
 MAX_CONCURRENT_CONNECTIONS = 10
 CONNECTION_TIMEOUT_SECONDS = 120.0
+MAX_SESSION_DURATION_SECONDS = 300.0
 MAX_INPUT_LINE_BYTES = 2048
 
 HOST_KEY_FILE = pathlib.Path("decoy_ssh_host_key")
@@ -119,10 +120,15 @@ class AegisSSHTerminalSession(asyncssh.SSHServerSession):
         self.buffer = ""
         self.session_id: str = server.session_id
         self.source_ip: str = server.peer_ip
+        self.start_time: float = time.time()
         self.last_active: float = time.time()
 
     def connection_made(self, chan: asyncssh.SSHServerChannel) -> None:
         self.chan = chan
+
+    def connection_lost(self, exc: Optional[Exception]) -> None:
+        """Called when terminal session connection is lost."""
+        decoy.end_decoy_session(self.session_id)
 
     def shell_requested(self) -> bool:
         """Called when interactive shell is requested."""
@@ -147,12 +153,28 @@ class AegisSSHTerminalSession(asyncssh.SSHServerSession):
         if not self.chan:
             return
 
-        self.last_active = time.time()
+        now = time.time()
+        # Enforce max session duration
+        if now - self.start_time > MAX_SESSION_DURATION_SECONDS:
+            self.chan.write("\r\n[-] Session duration limit (300s) exceeded. Disconnecting.\r\n")
+            self.chan.close()
+            decoy.end_decoy_session(self.session_id)
+            return
+
+        # Enforce idle/inactivity timeout
+        if now - self.last_active > CONNECTION_TIMEOUT_SECONDS:
+            self.chan.write("\r\n[-] Session idle timeout (120s) exceeded. Disconnecting.\r\n")
+            self.chan.close()
+            decoy.end_decoy_session(self.session_id)
+            return
+
+        self.last_active = now
 
         # Check line length limit
         if len(self.buffer) + len(data) > MAX_INPUT_LINE_BYTES:
             self.chan.write("\r\n[-] Error: Command line exceeds maximum input buffer (2048 bytes).\r\n")
             self.chan.close()
+            decoy.end_decoy_session(self.session_id)
             return
 
         for char in data:
@@ -166,6 +188,7 @@ class AegisSSHTerminalSession(asyncssh.SSHServerSession):
                     if command.lower() in ("exit", "logout", "quit"):
                         self.chan.write("Connection closed by foreign host.\r\n")
                         self.chan.close()
+                        decoy.end_decoy_session(self.session_id)
                         return
 
                     # Execute command in virtual decoy filesystem sandbox
@@ -187,6 +210,7 @@ class AegisSSHTerminalSession(asyncssh.SSHServerSession):
             elif char == "\x04":  # Ctrl+D (EOF)
                 self.chan.write("exit\r\n")
                 self.chan.close()
+                decoy.end_decoy_session(self.session_id)
                 return
             else:
                 self.buffer += char
@@ -226,6 +250,7 @@ class AegisSSHServer(asyncssh.SSHServer):
     def connection_lost(self, exc: Optional[Exception]) -> None:
         AegisSSHServer.active_connections = max(0, AegisSSHServer.active_connections - 1)
         print(f"[SSH Decoy] Connection closed from {self.peer_ip} (Remaining: {AegisSSHServer.active_connections})")
+        decoy.end_decoy_session(self.session_id)
 
     # -------------------------------------------------------------------------
     # Disabled Dangerous Features (Least Privilege)

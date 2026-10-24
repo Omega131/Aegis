@@ -10,25 +10,34 @@ import signal
 import sys
 
 import decoy
-import mqtt_decoy
 import ssh_decoy
 
 
 async def main() -> None:
-    host = "0.0.0.0"
-    ssh_port = int(sys.argv[1]) if len(sys.argv) > 1 else 2222
-    mqtt_port = int(sys.argv[2]) if len(sys.argv) > 2 else 1883
+    host = "127.0.0.1"
+    ssh_port = 2222
+    enable_mqtt = "--enable-mqtt" in sys.argv
+    mqtt_port = 1883
+
+    # Parse port overrides if specified as numbers
+    for arg in sys.argv[1:]:
+        if arg.isdigit():
+            ssh_port = int(arg)
+            break
 
     print("\n" + "=" * 60)
-    print("AegisMirage — Phantom Twin Decoy Protocol Services")
+    print("AegisMirage — Phantom Twin Honeypot Protocol Services")
     print("=" * 60)
-    print(f"[*] Starting SSH Decoy on {host}:{ssh_port}...")
+    print(f"[*] Starting Core SSH Decoy on {host}:{ssh_port}...")
     await decoy.start_ssh_decoy(host=host, port=ssh_port)
 
-    print(f"[*] Starting MQTT Decoy on {host}:{mqtt_port}...")
-    await decoy.start_mqtt_decoy(host=host, port=mqtt_port)
+    if enable_mqtt:
+        print(f"[*] Starting Optional MQTT Decoy on {host}:{mqtt_port}...")
+        await decoy.start_mqtt_decoy(host=host, port=mqtt_port)
+    else:
+        print("[*] MQTT Decoy is disabled by default (pass --enable-mqtt to activate).")
 
-    print("[*] Both Decoy services active. Press Ctrl+C to terminate.")
+    print("[*] Honeypot protocol service active. Press Ctrl+C to terminate.")
 
     # Keep running until cancelled
     stop_event = asyncio.Event()
@@ -50,9 +59,10 @@ async def main() -> None:
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
     finally:
-        print("[*] Stopping decoy services...")
+        print("[*] Stopping honeypot services...")
         await decoy.stop_ssh_decoy()
-        await decoy.stop_mqtt_decoy()
+        if enable_mqtt:
+            await decoy.stop_mqtt_decoy()
         print("[*] Shutdown complete.")
 
 
