@@ -4,8 +4,6 @@ import { LivingCityPage } from './pages/city';
 import { CamerasPage } from './pages/cameras';
 import { DecoyPage } from './pages/decoy';
 import { CampaignsPage } from './pages/campaigns';
-import { EscrowPage } from './pages/escrow';
-import { AuditPage } from './pages/audit';
 import { SettingsPage } from './pages/settings';
 
 function AppContent() {
@@ -21,10 +19,6 @@ function AppContent() {
         return <DecoyPage />;
       case 'evidence':
         return <CampaignsPage />;
-      case 'escrow':
-        return <EscrowPage />;
-      case 'audit':
-        return <AuditPage />;
       case 'settings':
         return <SettingsPage />;
       default:

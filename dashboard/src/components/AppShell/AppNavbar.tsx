@@ -58,24 +58,6 @@ export const AppNavbar: React.FC = () => {
         >
           <span>Threat Intel</span>
         </button>
-
-        <button
-          type="button"
-          id="nav-escrow"
-          className={`nav-tab-btn ${activeTab === 'escrow' ? 'active' : ''}`}
-          onClick={() => setActiveTab('escrow')}
-        >
-          <span>Escrow</span>
-        </button>
-
-        <button
-          type="button"
-          id="nav-audit"
-          className={`nav-tab-btn ${activeTab === 'audit' ? 'active' : ''}`}
-          onClick={() => setActiveTab('audit')}
-        >
-          <span>Audit</span>
-        </button>
       </nav>
 
       <div className="navbar-actions">

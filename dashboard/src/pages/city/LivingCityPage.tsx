@@ -783,7 +783,7 @@ export const LivingCityPage: React.FC = () => {
             type="button"
             className="glance-link"
             style={{ background: 'transparent', border: 'none', padding: 0 }}
-            onClick={() => setActiveTab('audit')}
+            onClick={() => setActiveTab('evidence')}
           >
             <span>View activity</span>
             <span aria-hidden="true">→</span>
@@ -874,10 +874,10 @@ export const LivingCityPage: React.FC = () => {
           {/* Card 4: Pending approvals */}
           <div
             className="glance-card"
-            onClick={() => setActiveTab('escrow')}
+            onClick={() => setActiveTab('evidence')}
             role="button"
             tabIndex={0}
-            title="Inspect pending Escrow Quorum cases"
+            title="Inspect active threat campaigns"
           >
             <div className="glance-card-icon-wrap" aria-hidden="true">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
