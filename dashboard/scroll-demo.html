@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Standalone AegisMirage scroll-based animation demo"
+    />
+    <title>AegisMirage — Scroll Demo</title>
+    <link rel="stylesheet" href="./scroll-demo.css" />
+  </head>
+  <body>
+    <div class="demo-shell">
+      <header class="demo-nav">
+        <a class="brand" href="#top" aria-label="AegisMirage home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+              <path d="M12 8v4M12 16h.01" />
+            </svg>
+          </span>
+          <span>
+            <strong>AegisMirage</strong>
+            <small>scroll demo</small>
+          </span>
+        </a>
+
+        <nav class="demo-nav-links" aria-label="Demo sections">
+          <a href="#mesh">Mesh</a>
+          <a href="#privacy">Privacy</a>
+          <a href="#incident">Incident</a>
+          <a href="#audit">Audit</a>
+        </nav>
+
+        <div class="backend-chip">
+          <span class="status-dot"></span>
+          DEMO MODE
+        </div>
+      </header>
+
+      <main id="top">
+        <section class="hero section-frame">
+          <div class="hero-grid" aria-hidden="true"></div>
+          <div class="hero-orbit orbit-one" aria-hidden="true"></div>
+          <div class="hero-orbit orbit-two" aria-hidden="true"></div>
+          <div class="scan-line" aria-hidden="true"></div>
+
+          <div class="hero-copy reveal-up">
+            <p class="eyebrow"><span class="eyebrow-line"></span> PHYSICAL DEFENSE / 01</p>
+            <h1>See the threat<br /><em>before it spreads.</em></h1>
+            <p class="hero-description">
+              A scroll-driven concept for AegisMirage: an edge camera mesh,
+              privacy-first telemetry, and coordinated incident response in one
+              operational story.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="#mesh">Explore the mesh <span>↓</span></a>
+              <span class="hero-note">Scroll to activate the network</span>
+            </div>
+          </div>
+
+          <div class="hero-signal reveal-right" aria-label="Demo system status">
+            <div class="signal-ring ring-a"></div>
+            <div class="signal-ring ring-b"></div>
+            <div class="signal-center">
+              <span class="signal-lock">⌁</span>
+              <strong>AEGIS</strong>
+              <small>THREAT SURFACE</small>
+            </div>
+            <span class="signal-label label-north">EDGE MESH / ONLINE</span>
+            <span class="signal-label label-east">ZERO RAW INGESTION</span>
+            <span class="signal-label label-south">AUDIT CHANNEL READY</span>
+          </div>
+
+          <div class="hero-stats reveal-up">
+            <div><strong>05</strong><span>ACTIVE NODES</span></div>
+            <div><strong>00</strong><span>OPEN ANOMALIES</span></div>
+            <div><strong>100%</strong><span>PRIVACY MODE</span></div>
+          </div>
+        </section>
+
+        <section class="story-section section-frame" id="mesh">
+          <div class="section-heading reveal-up">
+            <p class="eyebrow"><span class="eyebrow-line"></span> CAMERA MESH / 02</p>
+            <h2>One perimeter.<br /><em>Five independent sentries.</em></h2>
+            <p>
+              The network reveals itself as the analyst moves through the page.
+              Each node is autonomous, but every event contributes to one shared
+              threat picture.
+            </p>
+          </div>
+
+          <div class="mesh-stage" aria-label="Animated camera mesh illustration">
+            <svg class="mesh-lines" viewBox="0 0 900 520" role="img" aria-label="Connected camera nodes">
+              <path class="mesh-path path-main" d="M450 260 L205 120 L690 105 L770 390 L165 390 Z" />
+              <path class="mesh-path path-cross" d="M205 120 L770 390 M690 105 L165 390" />
+              <path class="mesh-path path-center" d="M450 260 L205 120 M450 260 L690 105 M450 260 L165 390 M450 260 L770 390" />
+            </svg>
+
+            <div class="mesh-node node-center">
+              <span class="node-pulse"></span>
+              <span class="node-core">A</span>
+              <strong>AEGIS CORE</strong>
+              <small>COORDINATOR</small>
+            </div>
+            <div class="mesh-node node-one">
+              <span class="node-pulse"></span><span class="node-core">01</span>
+              <strong>CAM-01</strong><small>HEALTHY / 16 FPS</small>
+            </div>
+            <div class="mesh-node node-two">
+              <span class="node-pulse"></span><span class="node-core">02</span>
+              <strong>CAM-02</strong><small>HEALTHY / 16 FPS</small>
+            </div>
+            <div class="mesh-node node-three">
+              <span class="node-pulse"></span><span class="node-core">03</span>
+              <strong>CAM-03</strong><small>HEALTHY / 16 FPS</small>
+            </div>
+            <div class="mesh-node node-four">
+              <span class="node-pulse"></span><span class="node-core">04</span>
+              <strong>CAM-04</strong><small>HEALTHY / 16 FPS</small>
+            </div>
+            <div class="mesh-node node-five">
+              <span class="node-pulse"></span><span class="node-core">05</span>
+              <strong>CAM-05</strong><small>HEALTHY / 16 FPS</small>
+            </div>
+          </div>
+
+          <div class="mesh-readout reveal-up">
+            <span class="readout-prefix">SYSTEM NOTE</span>
+            <p>Distributed sensing keeps the perimeter visible even when a single node is degraded.</p>
+            <span class="readout-code">MESH.SYNC // NOMINAL</span>
+          </div>
+        </section>
+
+        <section class="camera-section section-frame" id="cameras">
+          <div class="section-heading reveal-up">
+            <p class="eyebrow"><span class="eyebrow-line"></span> LIVE TELEMETRY / 03</p>
+            <h2>Keep the feed fixed.<br /><em>Let the evidence move.</em></h2>
+            <p>
+              A sticky live viewport can remain visible while camera status,
+              privacy counters, and edge events progress beside it.
+            </p>
+          </div>
+
+          <div class="sticky-camera-layout">
+            <div class="camera-viewport-wrap">
+              <div class="camera-viewport">
+                <div class="camera-noise"></div>
+                <div class="camera-grid-overlay"></div>
+                <div class="privacy-badge">⌁ BLURRED BY DEFAULT</div>
+                <div class="camera-crosshair"><span></span><span></span></div>
+                <div class="camera-scan"></div>
+                <div class="camera-hud hud-top-left">CAM-03 / NORTH GATE</div>
+                <div class="camera-hud hud-top-right">LIVE / 16 FPS</div>
+                <div class="camera-hud hud-bottom-left">YUNET // EDGE PROCESSOR</div>
+                <div class="camera-hud hud-bottom-right">00:14:28:07</div>
+                <div class="fake-silhouette silhouette-one"></div>
+                <div class="fake-silhouette silhouette-two"></div>
+              </div>
+              <div class="camera-footer">
+                <div><span class="status-dot"></span><strong>CAM-03 HEALTHY</strong></div>
+                <span>FACE CROPS ENCRYPTED LOCALLY</span>
+              </div>
+            </div>
+
+            <div class="telemetry-steps">
+              <article class="telemetry-card">
+                <span class="step-number">01</span>
+                <div>
+                  <p class="card-kicker">CURRENT STATE</p>
+                  <h3>North gate is clear.</h3>
+                  <p>Live imagery stays inside the edge node while the dashboard receives privacy-safe telemetry.</p>
+                  <div class="mini-metrics"><span>HEALTHY</span><span>342 BLURRED</span><span>0 ANOMALIES</span></div>
+                </div>
+              </article>
+              <article class="telemetry-card">
+                <span class="step-number">02</span>
+                <div>
+                  <p class="card-kicker">EDGE PROCESSING</p>
+                  <h3>Privacy happens first.</h3>
+                  <p>Faces are detected and obscured before any event becomes part of the central audit stream.</p>
+                  <div class="mini-progress"><span style="width: 88%"></span></div>
+                  <small>PRIVACY PIPELINE / 88% ACTIVE</small>
+                </div>
+              </article>
+              <article class="telemetry-card">
+                <span class="step-number">03</span>
+                <div>
+                  <p class="card-kicker">EVENT CORRELATION</p>
+                  <h3>Signals become context.</h3>
+                  <p>Telemetry from the camera mesh can later connect with decoy activity and campaign clusters.</p>
+                  <div class="event-chip-row"><span>FACE_BLURRED</span><span>WINDOW_7F2A</span></div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="privacy-section section-frame" id="privacy">
+          <div class="section-heading reveal-up">
+            <p class="eyebrow"><span class="eyebrow-line"></span> PRIVACY PIPELINE / 04</p>
+            <h2>Raw imagery stops<br /><em>at the edge.</em></h2>
+            <p>
+              Make the privacy promise tangible with a scroll-activated data
+              pipeline instead of another static feature card.
+            </p>
+          </div>
+
+          <div class="privacy-pipeline">
+            <div class="pipeline-track"><span></span></div>
+            <article class="pipeline-step">
+              <div class="pipeline-icon">01</div>
+              <div><span>INPUT</span><h3>Camera frame</h3><p>Physical sensor captures a new frame at the perimeter.</p></div>
+            </article>
+            <article class="pipeline-step">
+              <div class="pipeline-icon">02</div>
+              <div><span>DETECT</span><h3>YuNet face detection</h3><p>Potentially sensitive regions are identified locally on the node.</p></div>
+            </article>
+            <article class="pipeline-step">
+              <div class="pipeline-icon">03</div>
+              <div><span>PROTECT</span><h3>Blur + encrypt</h3><p>Face crops are obscured and sealed with local AES-256-GCM escrow.</p></div>
+            </article>
+            <article class="pipeline-step">
+              <div class="pipeline-icon">04</div>
+              <div><span>REPORT</span><h3>Audit event</h3><p>The central dashboard receives a traceable privacy-safe event.</p></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="incident-section section-frame" id="incident">
+          <div class="section-heading reveal-up">
+            <p class="eyebrow"><span class="eyebrow-line"></span> INCIDENT RESPONSE / 05</p>
+            <h2>When the feed changes,<br /><em>the story changes with it.</em></h2>
+            <p>
+              A demo sequence for the existing Blind, Freeze, and Reset drill
+              controls. The scroll provides the narrative; the real controls
+              can remain explicit and interactive.
+            </p>
+          </div>
+
+          <div class="incident-track">
+            <div class="incident-progress"><span></span></div>
+            <article class="incident-card incident-normal">
+              <div class="incident-marker">A</div>
+              <div><span class="incident-status">NORMAL OPERATION</span><h3>All clear at the perimeter.</h3><p>Camera nodes report healthy status and the audit stream is receiving protected events.</p></div>
+              <span class="incident-time">15:02:11</span>
+            </article>
+            <article class="incident-card incident-warning">
+              <div class="incident-marker">B</div>
+              <div><span class="incident-status">CAMERA BLINDED</span><h3>Physical anomaly detected.</h3><p>The node remains connected, but the lens signal has changed. An amber warning propagates through the mesh.</p></div>
+              <span class="incident-time">15:02:14</span>
+            </article>
+            <article class="incident-card incident-danger">
+              <div class="incident-marker">C</div>
+              <div><span class="incident-status">STREAM FROZEN</span><h3>Escalate for analyst review.</h3><p>The event is now correlated with the camera window and becomes visible to downstream campaign analysis.</p></div>
+              <span class="incident-time">15:02:19</span>
+            </article>
+            <article class="incident-card incident-recovered">
+              <div class="incident-marker">D</div>
+              <div><span class="incident-status">RECOVERED</span><h3>Node returns to service.</h3><p>The recovery event closes the visual loop and leaves a complete audit trail behind.</p></div>
+              <span class="incident-time">15:02:26</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="audit-section section-frame" id="audit">
+          <div class="section-heading reveal-up">
+            <p class="eyebrow"><span class="eyebrow-line"></span> AUDIT CHANNEL / 06</p>
+            <h2>Every signal leaves<br /><em>a readable trace.</em></h2>
+          </div>
+
+          <div class="audit-layout">
+            <div class="audit-summary reveal-left">
+              <span class="audit-lock">⌁</span>
+              <p class="card-kicker">EDGE SENTRY EVENT AUDIT LOG</p>
+              <strong>Traceable by default.</strong>
+              <p>Use the last section as a visual landing zone for the existing live event table.</p>
+              <a class="button button-secondary" href="#top">Return to top ↑</a>
+            </div>
+
+            <div class="audit-list">
+              <div class="audit-row"><time>15:02:26</time><b>CAM-03</b><span class="audit-pill pill-green">CAMERA_RECOVERED</span><small>System telemetry</small></div>
+              <div class="audit-row"><time>15:02:19</time><b>CAM-03</b><span class="audit-pill pill-red">CAMERA_FROZEN</span><small>Encrypted &amp; blurred</small></div>
+              <div class="audit-row"><time>15:02:14</time><b>CAM-03</b><span class="audit-pill pill-amber">CAMERA_BLINDED</span><small>System telemetry</small></div>
+              <div class="audit-row"><time>15:02:11</time><b>CAM-01</b><span class="audit-pill pill-cyan">FACE_BLURRED</span><small>Encrypted &amp; blurred</small></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="demo-footer">
+        <span>AEGISMIRAGE / STANDALONE SCROLL CONCEPT</span>
+        <span>NO EXISTING PROJECT FILES ARE USED</span>
+      </footer>
+    </div>
+  </body>
+</html>
