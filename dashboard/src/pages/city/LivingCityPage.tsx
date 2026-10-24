@@ -9,9 +9,11 @@ export interface CityDevice {
   name: string;
   district: string;
   type: 'camera' | 'signal' | 'power' | 'sensor' | 'gateway';
+  category: 'vision' | 'decoy' | 'infrastructure';
   xPercent: number; // Percentage coordinate on the diorama illustration
   yPercent: number;
   label: string;
+  metric: string;
 }
 
 const CITY_DEVICES: CityDevice[] = [
@@ -21,9 +23,11 @@ const CITY_DEVICES: CityDevice[] = [
     name: 'Edge Sentry Camera',
     district: 'Civic Core District',
     type: 'camera',
+    category: 'vision',
     xPercent: 44.5,
     yPercent: 68.0,
     label: 'Edge camera',
+    metric: '24.0 FPS • YuNet Face Blur Active • AES-256 Vault',
   },
   {
     key: 'signal',
@@ -31,9 +35,11 @@ const CITY_DEVICES: CityDevice[] = [
     name: 'Mobility Traffic Controller',
     district: 'Central Transit Corridor',
     type: 'signal',
+    category: 'infrastructure',
     xPercent: 55.6,
     yPercent: 59.8,
     label: 'Smart signal',
+    metric: 'Flow 840 veh/hr • Transit Corridor • Click to cycle light',
   },
   {
     key: 'gateway',
@@ -41,9 +47,11 @@ const CITY_DEVICES: CityDevice[] = [
     name: 'Aegis Gateway Node',
     district: 'Virtual Deception Perimeter',
     type: 'gateway',
+    category: 'decoy',
     xPercent: 74.8,
     yPercent: 34.0,
     label: 'Aegis gateway',
+    metric: 'SSH Port 2222 Armed • Isolated Honeytrap Routing',
   },
   {
     key: 'power',
@@ -51,9 +59,11 @@ const CITY_DEVICES: CityDevice[] = [
     name: 'Smart Substation Node',
     district: 'Industrial Power Sector',
     type: 'power',
+    category: 'infrastructure',
     xPercent: 54.5,
     yPercent: 76.5,
     label: 'Solar substation',
+    metric: 'Solar 94.2 kW • Battery 98% • Grid Balance Nominal',
   },
   {
     key: 'sensor',
@@ -61,9 +71,11 @@ const CITY_DEVICES: CityDevice[] = [
     name: 'Environmental Telemetry',
     district: 'Botanical Environmental Zone',
     type: 'sensor',
+    category: 'infrastructure',
     xPercent: 31.0,
     yPercent: 63.5,
     label: 'Eco telemetry',
+    metric: 'Air Quality AQI 22 (Good) • Water Temp 19.4°C • pH 7.3',
   },
 ];
 
@@ -88,6 +100,20 @@ export const LivingCityPage: React.FC = () => {
   });
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
+  // 3D Perspective Tilt on Mouse Movement
+  const [tilt, setTilt] = useState<{ rx: number; ry: number }>({ rx: 0, ry: 0 });
+
+  // Interactive Layer Filtering
+  const [activeCategory, setActiveCategory] = useState<'all' | 'vision' | 'decoy' | 'infrastructure'>('all');
+
+  // Interactive Lighting & Display Modes
+  const [duskLighting, setDuskLighting] = useState<boolean>(false);
+  const [domeVisible, setDomeVisible] = useState<boolean>(true);
+  const [theaterMode, setTheaterMode] = useState<boolean>(false);
+
+  // Hovered Node for Rich Telemetry Card
+  const [hoveredNode, setHoveredNode] = useState<CityDevice | null>(null);
+
   // Traffic Light Real-time State Cycle
   const [trafficSignalColor, setTrafficSignalColor] = useState<'green' | 'yellow' | 'red'>('green');
 
@@ -97,11 +123,11 @@ export const LivingCityPage: React.FC = () => {
   const [demoModalOpen, setDemoModalOpen] = useState<boolean>(false);
   const [drillRunning, setDrillRunning] = useState<boolean>(false);
 
-  // Cycle traffic lights every 4.5 seconds
+  // Automatic Traffic Light Cycle
   useEffect(() => {
     const timer = setInterval(() => {
       setTrafficSignalColor((prev) => (prev === 'green' ? 'yellow' : prev === 'yellow' ? 'red' : 'green'));
-    }, 4500);
+    }, 5000);
     return () => clearInterval(timer);
   }, []);
 
@@ -145,9 +171,32 @@ export const LivingCityPage: React.FC = () => {
     [setSelectedDevice, setInspectorOpen, cameraNode, addToast]
   );
 
+  // Smooth Focus-and-Center on Hotspot Click
+  const handleFocusAndSelectDevice = useCallback(
+    (device: CityDevice) => {
+      // Smoothly center the pan on the device coordinate relative to diorama center (50%, 50%)
+      const targetPanX = ((50 - device.xPercent) / 100) * 380;
+      const targetPanY = ((50 - device.yPercent) / 100) * 240;
+      setPan({ x: targetPanX, y: targetPanY });
+      setZoom(1.45);
+      handleSelectDevice(device);
+    },
+    [handleSelectDevice]
+  );
+
+  // Interactive Click-to-Cycle Traffic Signal
+  const handleCycleTrafficLight = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTrafficSignalColor((prev) => {
+      const next = prev === 'green' ? 'yellow' : prev === 'yellow' ? 'red' : 'green';
+      addToast('Traffic Signal Commanded', `SIG-02 controller shifted to ${next.toUpperCase()}`, 'production');
+      return next;
+    });
+  };
+
   // Pan & Zoom Controls
   const handleZoomIn = () => {
-    setZoom((prev) => Math.min(prev + 0.25, 2.2));
+    setZoom((prev) => Math.min(prev + 0.25, 2.5));
   };
 
   const handleZoomOut = () => {
@@ -157,6 +206,7 @@ export const LivingCityPage: React.FC = () => {
   const handleResetView = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    setTilt({ rx: 0, ry: 0 });
     addToast('Viewport Reset', 'Restored smart district default view', 'production');
   };
 
@@ -164,7 +214,37 @@ export const LivingCityPage: React.FC = () => {
     setPan({ x: 0, y: 0 });
   };
 
-  // Mouse / Touch Drag Handlers
+  // Mouse Wheel Zoom
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = -Math.sign(e.deltaY) * 0.15;
+    setZoom((prev) => Math.min(Math.max(prev + delta, 0.85), 2.5));
+  };
+
+  // Mouse Move: Dynamic 3D Card Perspective Tilt
+  const handleViewportMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDragging) {
+      const deltaX = e.clientX - dragStartRef.current.startX;
+      const deltaY = e.clientY - dragStartRef.current.startY;
+      const maxPan = 180 * zoom;
+      const newX = Math.max(-maxPan, Math.min(maxPan, dragStartRef.current.initialPanX + deltaX));
+      const newY = Math.max(-maxPan, Math.min(maxPan, dragStartRef.current.initialPanY + deltaY));
+      setPan({ x: newX, y: newY });
+      return;
+    }
+
+    if (!viewportRef.current) return;
+    const rect = viewportRef.current.getBoundingClientRect();
+    const xRatio = (e.clientX - rect.left) / rect.width - 0.5; // -0.5 to 0.5
+    const yRatio = (e.clientY - rect.top) / rect.height - 0.5; // -0.5 to 0.5
+
+    // Subtle 3D perspective rotation
+    setTilt({
+      rx: -yRatio * 12,
+      ry: xRatio * 16,
+    });
+  };
+
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
     dragStartRef.current = {
@@ -175,19 +255,14 @@ export const LivingCityPage: React.FC = () => {
     };
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    const deltaX = e.clientX - dragStartRef.current.startX;
-    const deltaY = e.clientY - dragStartRef.current.startY;
-    // Apply bounded drag limits
-    const maxPan = 140 * zoom;
-    const newX = Math.max(-maxPan, Math.min(maxPan, dragStartRef.current.initialPanX + deltaX));
-    const newY = Math.max(-maxPan, Math.min(maxPan, dragStartRef.current.initialPanY + deltaY));
-    setPan({ x: newX, y: newY });
-  };
-
   const handleMouseUp = () => {
     setIsDragging(false);
+  };
+
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+    setTilt({ rx: 0, ry: 0 });
+    setHoveredNode(null);
   };
 
   // Hackathon Drill A: Camera Blinding & Access Denial
@@ -239,12 +314,18 @@ export const LivingCityPage: React.FC = () => {
   const escrowCasesCount = systemHealth?.stats?.escrow_cases_count ?? 1;
   const connectedTotal = camerasCount + 4; // Camera, Signal, Substation, Sensor, Gateway
 
+  // Check if device matches active category filter
+  const isDeviceVisible = (device: CityDevice) => {
+    if (activeCategory === 'all') return true;
+    return device.category === activeCategory;
+  };
+
   return (
     <div className="living-city-page" id="living-city-overview">
       {/* =======================================================================
-          Hero Section: 40% Text on Left, 60% Architectural Diorama on Right
+          Hero Section: Expansive Diorama Layout (Bigger & More Interactive)
           ======================================================================= */}
-      <section className="city-hero" aria-label="Hero Introduction">
+      <section className={`city-hero ${theaterMode ? 'theater-mode' : ''}`} aria-label="Hero Introduction">
         {/* Left Column: Heading, Copy, Actions, Connected Dots */}
         <div className="hero-content-col">
           <div className="hero-overline">CONNECTED INFRASTRUCTURE, PROTECTED.</div>
@@ -267,7 +348,7 @@ export const LivingCityPage: React.FC = () => {
             <button
               type="button"
               className="btn-hero-solid"
-              onClick={() => handleSelectDevice(CITY_DEVICES[0])}
+              onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[0])}
               id="hero-explore-devices-btn"
             >
               <span>Explore devices</span>
@@ -301,19 +382,55 @@ export const LivingCityPage: React.FC = () => {
         {/* Right Column: 2.5D Architectural Smart-District Diorama with Interactive Overlays */}
         <div className="hero-diorama-col">
           <div className="diorama-frame-wrapper" id="diorama-container">
+            {/* Top-Left: Interactive Subsystem Layer Filter */}
+            <div className="diorama-layer-tabs">
+              <button
+                type="button"
+                className={`diorama-tab-btn ${activeCategory === 'all' ? 'active' : ''}`}
+                onClick={() => setActiveCategory('all')}
+              >
+                All (5)
+              </button>
+              <button
+                type="button"
+                className={`diorama-tab-btn ${activeCategory === 'vision' ? 'active' : ''}`}
+                onClick={() => setActiveCategory('vision')}
+              >
+                📷 Vision
+              </button>
+              <button
+                type="button"
+                className={`diorama-tab-btn ${activeCategory === 'decoy' ? 'active' : ''}`}
+                onClick={() => setActiveCategory('decoy')}
+              >
+                🪤 Decoy
+              </button>
+              <button
+                type="button"
+                className={`diorama-tab-btn ${activeCategory === 'infrastructure' ? 'active' : ''}`}
+                onClick={() => setActiveCategory('infrastructure')}
+              >
+                ⚡ Grid
+              </button>
+            </div>
+
             <div
               ref={viewportRef}
               className={`diorama-viewport ${isDragging ? 'dragging' : ''}`}
               onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
+              onMouseMove={handleViewportMouseMove}
               onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
+              onMouseLeave={handleMouseLeave}
+              onWheel={handleWheel}
+              style={{
+                transform: `rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)`,
+              }}
             >
               {/* High-Fidelity 2.5D Architectural Smart-City Diorama Asset */}
               <img
                 src="/assets/smart_city_diorama.jpg"
                 alt="Architectural Smart City 2.5D Diorama"
-                className="diorama-image"
+                className={`diorama-image ${duskLighting ? 'dusk-lighting' : ''}`}
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 }}
@@ -321,27 +438,41 @@ export const LivingCityPage: React.FC = () => {
               />
 
               {/* Glowing Protective Green Canopy Arc */}
-              <svg
-                className="protective-dome-svg"
-                viewBox="0 0 1376 768"
-                preserveAspectRatio="none"
-                style={{
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  transformOrigin: 'center center',
-                }}
-              >
-                <defs>
-                  <linearGradient id="protectiveDomeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#BFE6C4" stopOpacity="0.8" />
-                    <stop offset="50%" stopColor="#246B45" stopOpacity="0.9" />
-                    <stop offset="100%" stopColor="#BFE6C4" stopOpacity="0.8" />
-                  </linearGradient>
-                </defs>
-                <path
-                  d="M 230 450 C 240 180, 1130 180, 1140 450"
-                  className="dome-glow-arc"
+              {domeVisible && (
+                <svg
+                  className="protective-dome-svg"
+                  viewBox="0 0 1376 768"
+                  preserveAspectRatio="none"
+                  style={{
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translateZ(35px)`,
+                    transformOrigin: 'center center',
+                  }}
+                >
+                  <defs>
+                    <linearGradient id="protectiveDomeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#BFE6C4" stopOpacity="0.8" />
+                      <stop offset="50%" stopColor="#246B45" stopOpacity="0.95" />
+                      <stop offset="100%" stopColor="#BFE6C4" stopOpacity="0.8" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d="M 230 450 C 240 180, 1130 180, 1140 450"
+                    className="dome-glow-arc"
+                  />
+                </svg>
+              )}
+
+              {/* Animated Camera Scanning Radar Cone Sweep */}
+              {isDeviceVisible(CITY_DEVICES[0]) && (
+                <div
+                  className="camera-radar-beam"
+                  style={{
+                    left: `${CITY_DEVICES[0].xPercent}%`,
+                    top: `${CITY_DEVICES[0].yPercent}%`,
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translate(-50%, -50%)`,
+                  }}
                 />
-              </svg>
+              )}
 
               {/* Interactive SVG Leader Lines Connecting Hotspots */}
               <svg
@@ -349,20 +480,24 @@ export const LivingCityPage: React.FC = () => {
                 viewBox="0 0 100 100"
                 preserveAspectRatio="none"
                 style={{
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translateZ(25px)`,
                   transformOrigin: 'center center',
                 }}
               >
                 {/* Leader line from CAM-01 Protected card (38%, 46%) down to camera pole (44.5%, 68.0%) */}
-                <path
-                  d="M 38 46 L 41 52 L 44.5 68"
-                  className="leader-line"
-                />
+                {isDeviceVisible(CITY_DEVICES[0]) && (
+                  <path
+                    d="M 38 46 L 41 52 L 44.5 68"
+                    className="leader-line"
+                  />
+                )}
                 {/* Leader line from Gateway pill (84%, 22%) to Gateway antenna (74.8%, 34%) */}
-                <path
-                  d="M 84 22 L 78 26 L 74.8 34"
-                  className="leader-line"
-                />
+                {isDeviceVisible(CITY_DEVICES[2]) && (
+                  <path
+                    d="M 84 22 L 78 26 L 74.8 34"
+                    className="leader-line"
+                  />
+                )}
               </svg>
 
               {/* Transformed Hotspot Overlays (Anchored Relative to Illustration Coordinates) */}
@@ -370,160 +505,214 @@ export const LivingCityPage: React.FC = () => {
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translateZ(30px)`,
                   transformOrigin: 'center center',
                   pointerEvents: 'none',
                 }}
               >
                 {/* 1. CAM-01 Callout Card & Hotspot */}
-                <div
-                  className="camera-callout-card"
-                  style={{
-                    left: '36%',
-                    top: '44%',
-                    pointerEvents: 'auto',
-                  }}
-                  onClick={() => handleSelectDevice(CITY_DEVICES[0])}
-                  title="View Edge Sentry live camera feed and encrypted crops"
-                >
-                  <span className="live-dot" />
-                  <span>CAM-01 Protected</span>
-                </div>
-
-                <div
-                  className="hotspot-element"
-                  style={{
-                    left: `${CITY_DEVICES[0].xPercent}%`,
-                    top: `${CITY_DEVICES[0].yPercent}%`,
-                    pointerEvents: 'auto',
-                  }}
-                  onClick={() => handleSelectDevice(CITY_DEVICES[0])}
-                >
-                  <div className="hotspot-ring-wrapper">
-                    <span className="hotspot-pulse-wave" />
-                    <span className="hotspot-core-dot" />
-                  </div>
-                </div>
-
-                {/* Edge Camera Label Pill */}
-                <div
-                  className="hotspot-pill-label"
-                  style={{
-                    position: 'absolute',
-                    left: '46%',
-                    top: '32%',
-                    transform: 'translate(-50%, -50%)',
-                    pointerEvents: 'auto',
-                  }}
-                  onClick={() => handleSelectDevice(CITY_DEVICES[0])}
-                >
-                  <span className="label-indicator" />
-                  <span>Edge camera</span>
-                </div>
-
-                {/* 2. Smart Signal Hotspot & Pill */}
-                <div
-                  className="hotspot-pill-label signal-pill"
-                  style={{
-                    position: 'absolute',
-                    left: `${CITY_DEVICES[1].xPercent + 6}%`,
-                    top: `${CITY_DEVICES[1].yPercent - 2}%`,
-                    transform: 'translate(-50%, -50%)',
-                    pointerEvents: 'auto',
-                  }}
-                  onClick={() => handleSelectDevice(CITY_DEVICES[1])}
-                >
-                  <span className={`label-indicator ${trafficSignalColor}`} />
-                  <span>Smart signal</span>
-                </div>
-
-                <div
-                  className="hotspot-element"
-                  style={{
-                    left: `${CITY_DEVICES[1].xPercent}%`,
-                    top: `${CITY_DEVICES[1].yPercent}%`,
-                    pointerEvents: 'auto',
-                  }}
-                  onClick={() => handleSelectDevice(CITY_DEVICES[1])}
-                >
-                  <div className="hotspot-ring-wrapper">
-                    <span className="hotspot-pulse-wave" />
-                    <span
-                      className="hotspot-core-dot"
+                {isDeviceVisible(CITY_DEVICES[0]) && (
+                  <>
+                    <div
+                      className="camera-callout-card"
                       style={{
-                        backgroundColor:
-                          trafficSignalColor === 'green'
-                            ? '#246B45'
-                            : trafficSignalColor === 'yellow'
-                            ? '#D97706'
-                            : '#DC2626',
+                        left: '36%',
+                        top: '44%',
+                        pointerEvents: 'auto',
                       }}
-                    />
-                  </div>
-                </div>
+                      onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[0])}
+                      onMouseEnter={() => setHoveredNode(CITY_DEVICES[0])}
+                      title="Click to focus Edge Sentry camera"
+                    >
+                      <span className="live-dot" />
+                      <span>CAM-01 Protected</span>
+                    </div>
+
+                    <div
+                      className="hotspot-element"
+                      style={{
+                        left: `${CITY_DEVICES[0].xPercent}%`,
+                        top: `${CITY_DEVICES[0].yPercent}%`,
+                        pointerEvents: 'auto',
+                      }}
+                      onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[0])}
+                      onMouseEnter={() => setHoveredNode(CITY_DEVICES[0])}
+                    >
+                      <div className="hotspot-ring-wrapper">
+                        <span className="hotspot-pulse-wave" />
+                        <span className="hotspot-core-dot" />
+                      </div>
+                    </div>
+
+                    {/* Edge Camera Label Pill */}
+                    <div
+                      className="hotspot-pill-label"
+                      style={{
+                        position: 'absolute',
+                        left: '46%',
+                        top: '32%',
+                        transform: 'translate(-50%, -50%)',
+                        pointerEvents: 'auto',
+                      }}
+                      onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[0])}
+                      onMouseEnter={() => setHoveredNode(CITY_DEVICES[0])}
+                    >
+                      <span className="label-indicator" />
+                      <span>Edge camera</span>
+                    </div>
+                  </>
+                )}
+
+                {/* 2. Smart Signal Hotspot & Pill (Click to Cycle Light!) */}
+                {isDeviceVisible(CITY_DEVICES[1]) && (
+                  <>
+                    <div
+                      className="hotspot-pill-label signal-pill"
+                      style={{
+                        position: 'absolute',
+                        left: `${CITY_DEVICES[1].xPercent + 6}%`,
+                        top: `${CITY_DEVICES[1].yPercent - 2}%`,
+                        transform: 'translate(-50%, -50%)',
+                        pointerEvents: 'auto',
+                      }}
+                      onClick={handleCycleTrafficLight}
+                      onMouseEnter={() => setHoveredNode(CITY_DEVICES[1])}
+                      title="Click to cycle traffic signal light (Green / Yellow / Red)"
+                    >
+                      <span className={`label-indicator ${trafficSignalColor}`} />
+                      <span>Smart signal</span>
+                    </div>
+
+                    <div
+                      className="hotspot-element"
+                      style={{
+                        left: `${CITY_DEVICES[1].xPercent}%`,
+                        top: `${CITY_DEVICES[1].yPercent}%`,
+                        pointerEvents: 'auto',
+                      }}
+                      onClick={handleCycleTrafficLight}
+                      onMouseEnter={() => setHoveredNode(CITY_DEVICES[1])}
+                    >
+                      <div className="hotspot-ring-wrapper">
+                        <span className="hotspot-pulse-wave" />
+                        <span
+                          className="hotspot-core-dot"
+                          style={{
+                            backgroundColor:
+                              trafficSignalColor === 'green'
+                                ? '#246B45'
+                                : trafficSignalColor === 'yellow'
+                                ? '#D97706'
+                                : '#DC2626',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 {/* 3. Aegis Gateway Hotspot & Pill */}
-                <div
-                  className="hotspot-pill-label"
-                  style={{
-                    position: 'absolute',
-                    left: '86%',
-                    top: '20%',
-                    transform: 'translate(-50%, -50%)',
-                    pointerEvents: 'auto',
-                  }}
-                  onClick={() => handleSelectDevice(CITY_DEVICES[2])}
-                >
-                  <span className="label-indicator" />
-                  <span>Aegis gateway</span>
-                </div>
+                {isDeviceVisible(CITY_DEVICES[2]) && (
+                  <>
+                    <div
+                      className="hotspot-pill-label"
+                      style={{
+                        position: 'absolute',
+                        left: '86%',
+                        top: '20%',
+                        transform: 'translate(-50%, -50%)',
+                        pointerEvents: 'auto',
+                      }}
+                      onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[2])}
+                      onMouseEnter={() => setHoveredNode(CITY_DEVICES[2])}
+                    >
+                      <span className="label-indicator" />
+                      <span>Aegis gateway</span>
+                    </div>
 
-                <div
-                  className="hotspot-element"
-                  style={{
-                    left: `${CITY_DEVICES[2].xPercent}%`,
-                    top: `${CITY_DEVICES[2].yPercent}%`,
-                    pointerEvents: 'auto',
-                  }}
-                  onClick={() => handleSelectDevice(CITY_DEVICES[2])}
-                >
-                  <div className="hotspot-ring-wrapper">
-                    <span className="hotspot-pulse-wave" />
-                    <span className="hotspot-core-dot" />
-                  </div>
-                </div>
+                    <div
+                      className="hotspot-element"
+                      style={{
+                        left: `${CITY_DEVICES[2].xPercent}%`,
+                        top: `${CITY_DEVICES[2].yPercent}%`,
+                        pointerEvents: 'auto',
+                      }}
+                      onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[2])}
+                      onMouseEnter={() => setHoveredNode(CITY_DEVICES[2])}
+                    >
+                      <div className="hotspot-ring-wrapper">
+                        <span className="hotspot-pulse-wave" />
+                        <span className="hotspot-core-dot" />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 {/* 4. Solar Substation Hotspot */}
-                <div
-                  className="hotspot-pill-label"
-                  style={{
-                    position: 'absolute',
-                    left: `${CITY_DEVICES[3].xPercent + 8}%`,
-                    top: `${CITY_DEVICES[3].yPercent + 2}%`,
-                    transform: 'translate(-50%, -50%)',
-                    pointerEvents: 'auto',
-                  }}
-                  onClick={() => handleSelectDevice(CITY_DEVICES[3])}
-                >
-                  <span className="label-indicator" />
-                  <span>Energy station</span>
-                </div>
+                {isDeviceVisible(CITY_DEVICES[3]) && (
+                  <div
+                    className="hotspot-pill-label"
+                    style={{
+                      position: 'absolute',
+                      left: `${CITY_DEVICES[3].xPercent + 8}%`,
+                      top: `${CITY_DEVICES[3].yPercent + 2}%`,
+                      transform: 'translate(-50%, -50%)',
+                      pointerEvents: 'auto',
+                    }}
+                    onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[3])}
+                    onMouseEnter={() => setHoveredNode(CITY_DEVICES[3])}
+                  >
+                    <span className="label-indicator" />
+                    <span>Energy station</span>
+                  </div>
+                )}
 
                 {/* 5. Environmental Sensor Hotspot */}
-                <div
-                  className="hotspot-pill-label"
-                  style={{
-                    position: 'absolute',
-                    left: `${CITY_DEVICES[4].xPercent}%`,
-                    top: `${CITY_DEVICES[4].yPercent - 7}%`,
-                    transform: 'translate(-50%, -50%)',
-                    pointerEvents: 'auto',
-                  }}
-                  onClick={() => handleSelectDevice(CITY_DEVICES[4])}
-                >
-                  <span className="label-indicator" />
-                  <span>Eco sensor</span>
-                </div>
+                {isDeviceVisible(CITY_DEVICES[4]) && (
+                  <div
+                    className="hotspot-pill-label"
+                    style={{
+                      position: 'absolute',
+                      left: `${CITY_DEVICES[4].xPercent}%`,
+                      top: `${CITY_DEVICES[4].yPercent - 7}%`,
+                      transform: 'translate(-50%, -50%)',
+                      pointerEvents: 'auto',
+                    }}
+                    onClick={() => handleFocusAndSelectDevice(CITY_DEVICES[4])}
+                    onMouseEnter={() => setHoveredNode(CITY_DEVICES[4])}
+                  >
+                    <span className="label-indicator" />
+                    <span>Eco sensor</span>
+                  </div>
+                )}
+
+                {/* Rich Live Telemetry Popover when Hovering a Node */}
+                {hoveredNode && (
+                  <div
+                    className="hotspot-hover-card"
+                    style={{
+                      left: `${hoveredNode.xPercent}%`,
+                      top: `${Math.max(hoveredNode.yPercent - 18, 12)}%`,
+                      transform: 'translate(-50%, -100%)',
+                    }}
+                  >
+                    <div className="hover-card-header">
+                      <span className="hover-card-title">{hoveredNode.name}</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--accent-primary)', fontWeight: 700 }}>
+                        {hoveredNode.id}
+                      </span>
+                    </div>
+                    <div className="hover-card-metric">{hoveredNode.metric}</div>
+                    <button
+                      type="button"
+                      className="hover-card-btn"
+                      onClick={() => handleFocusAndSelectDevice(hoveredNode)}
+                    >
+                      <span>Inspect Telemetry</span>
+                      <span>↗</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -566,8 +755,52 @@ export const LivingCityPage: React.FC = () => {
                 >
                   ⊙
                 </button>
+
+                <div style={{ width: '1px', height: '18px', background: 'var(--border-subtle)', margin: '0 2px' }} />
+
+                {/* Toggle Dome Shield */}
+                <button
+                  type="button"
+                  className={`diorama-ctrl-btn ${domeVisible ? 'active' : ''}`}
+                  onClick={() => {
+                    setDomeVisible(!domeVisible);
+                    addToast('Defense Canopy', domeVisible ? 'Forcefield canopy hidden' : 'Forcefield canopy activated', 'production');
+                  }}
+                  title={domeVisible ? 'Hide Defense Canopy' : 'Show Defense Canopy'}
+                  aria-label="Toggle Defense Canopy"
+                >
+                  🛡️
+                </button>
+
+                {/* Toggle Day / Cyber Dusk Lighting */}
+                <button
+                  type="button"
+                  className={`diorama-ctrl-btn ${duskLighting ? 'active' : ''}`}
+                  onClick={() => {
+                    setDuskLighting(!duskLighting);
+                    addToast('Lighting Mode', duskLighting ? 'Daylight architecture mode' : 'Cyber-dusk ambient lighting', 'production');
+                  }}
+                  title={duskLighting ? 'Switch to Daylight' : 'Switch to Cyber Dusk'}
+                  aria-label="Toggle Lighting"
+                >
+                  {duskLighting ? '🌙' : '☀️'}
+                </button>
+
+                {/* Theater Mode Fullscreen Expansion */}
+                <button
+                  type="button"
+                  className={`diorama-ctrl-btn ${theaterMode ? 'active' : ''}`}
+                  onClick={() => {
+                    setTheaterMode(!theaterMode);
+                    addToast('Display Mode', theaterMode ? 'Standard hero view' : 'Expansive theater showcase', 'production');
+                  }}
+                  title={theaterMode ? 'Standard View' : 'Expand Theater Mode'}
+                  aria-label="Toggle Theater Mode"
+                >
+                  ⛶
+                </button>
               </div>
-              <span className="diorama-ctrl-hint">Drag to explore • Select a device</span>
+              <span className="diorama-ctrl-hint">Drag or scroll to explore • Hover or click nodes</span>
             </div>
           </div>
         </div>
@@ -585,7 +818,7 @@ export const LivingCityPage: React.FC = () => {
             key={device.id}
             type="button"
             className="accessible-device-chip"
-            onClick={() => handleSelectDevice(device)}
+            onClick={() => handleFocusAndSelectDevice(device)}
           >
             <span style={{ color: 'var(--accent-primary)' }}>●</span>
             <span>{device.id}</span>
