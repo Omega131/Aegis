@@ -40,6 +40,12 @@ app.add_middleware(
 )
 
 
+# Mount module routers (auto-discovers routers from edge, decoy, gateway, intel, escrow)
+for module in (edge, decoy, gateway, intel, escrow):
+    if hasattr(module, "router"):
+        app.include_router(module.router)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
