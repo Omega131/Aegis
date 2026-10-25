@@ -33,7 +33,82 @@
 
 # Architecture Overview
 
-![Aegis Architecture](assets/smart_city_diorama.jpg)
+```mermaid
+flowchart TB
+    subgraph EdgeLayer["Edge Camera Mesh (edge.py)"]
+        direction TB
+        CAM["Live Camera Stream (RTSP / USB)"]
+        YUNET["YuNet ONNX Detector (In-Memory)"]
+        BLUR["Dynamic Privacy Pixelation"]
+        PUB_STREAM["Public RTSP Feed (Port 554) - Blurred Only"]
+        ENC["AES-256-GCM Encryptor (Ephemeral Key K)"]
+        STORE[("Content-Addressed Storage: <sha256>.bin")]
+
+        CAM --> YUNET
+        YUNET --> BLUR --> PUB_STREAM
+        YUNET -->|"Face Crops"| ENC --> STORE
+    end
+
+    subgraph GatewayLayer["Perimeter Gateway & Router (gateway.py)"]
+        direction TB
+        INGRESS["Inbound Connections (Ports 22, 80, 554, 1883)"]
+        HOSTILITY{"Hostility & Reputation Scoring"}
+        REAL_IOT["Real Municipal IoT Infrastructure"]
+
+        INGRESS --> HOSTILITY
+        HOSTILITY -->|"Hostility < Threshold (Legitimate)"| REAL_IOT
+    end
+
+    subgraph HoneypotLayer["Phantom Twin Decoy Sandbox (decoy.py)"]
+        direction TB
+        SSH_DECOY["AsyncSSH Decoy Daemon (Port 2222)"]
+        MQTT_DECOY["MQTT Broker Decoy (Port 1883)"]
+        HONEYTOKENS["Armed Honeytokens (/etc/camera/credentials.conf)"]
+        QUARANTINE[("Malware Quarantine & IoC Extraction")]
+
+        HOSTILITY -->|"Hostility >= Threshold (Suspicious)"| SSH_DECOY
+        HOSTILITY -->|"Suspicious MQTT Probes"| MQTT_DECOY
+        SSH_DECOY --> HONEYTOKENS
+        SSH_DECOY --> QUARANTINE
+    end
+
+    subgraph IntelLayer["Threat Intelligence Engine (intel.py)"]
+        direction TB
+        HASSH["Salesforce HASSH Client Fingerprinting"]
+        CLUSTERING["Threat Campaign Graph Clustering"]
+        IOC_DB[("Attribution & Threat DB")]
+
+        SSH_DECOY --> HASSH
+        QUARANTINE --> HASSH
+        HASSH --> CLUSTERING --> IOC_DB
+    end
+
+    subgraph EscrowLayer["Cryptographic Quorum Escrow (escrow.py)"]
+        direction TB
+        SHAMIR["Shamir 2-of-3 Key Split: f(x) = K + a1*x (mod p)"]
+        CUST1["Custodian 1: Police Investigator"]
+        CUST2["Custodian 2: Privacy Ombudsman"]
+        CUST3["Custodian 3: Magistrate / Judiciary"]
+        QUORUM{"2-of-3 Quorum Approved?"}
+        RECONSTRUCT["Key Reconstruction & Decryption"]
+        AUDIT[("Tamper-Evident Hash-Chained Audit Ledger")]
+
+        ENC -.->|"Key K"| SHAMIR
+        SHAMIR --> CUST1 & CUST2 & CUST3
+        CUST1 & CUST2 & CUST3 --> QUORUM
+        QUORUM -->|"Yes (Threshold Met)"| RECONSTRUCT
+        QUORUM -->|"Any Action / Denial"| AUDIT
+        STORE -.->|"Encrypted Crop"| RECONSTRUCT
+    end
+
+    subgraph DashboardLayer["Analyst & Operations Dashboard (React + Three.js)"]
+        DASH["Unified Web Dashboard (Port 5173)"]
+        DASH -->|"View Feed"| PUB_STREAM
+        DASH -->|"Initiate Warrant"| EscrowLayer
+        DASH -->|"Inspect Attacks"| IntelLayer
+        DASH -->|"Monitor Sandbox"| HoneypotLayer
+    end
+```
 
 ## The Problem
 
