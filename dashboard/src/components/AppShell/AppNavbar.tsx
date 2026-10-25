@@ -12,14 +12,14 @@ export const AppNavbar: React.FC = () => {
         type="button"
         className="navbar-brand-wrap"
         onClick={() => setActiveTab('city')}
-        aria-label="Aeigs Home"
+        aria-label="Aegis Home"
       >
         <img
           src="/assets/aegis_shield.png"
-          alt="Aeigs Emblem"
+          alt="Aegis Emblem"
           className="brand-logo-img"
         />
-        <span className="brand-name">Aeigs</span>
+        <span className="brand-name">Aegis</span>
       </button>
 
       <nav className="navbar-nav" aria-label="Main Navigation">

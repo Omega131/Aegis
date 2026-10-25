@@ -334,7 +334,7 @@ const FALLBACK_AUDIT_LOG: AuditBlock[] = [
     case_id: null,
     camera_id: null,
     window_id: null,
-    details: 'Aeigs break-glass cryptographic escrow ledger initialized.',
+    details: 'Aegis break-glass cryptographic escrow ledger initialized.',
     prev_hash: '0000000000000000000000000000000000000000000000000000000000000000',
     current_hash: '7e28b193fd314e389e13a01bf8a0e88320182470128941920831490182390182',
   },
@@ -768,8 +768,8 @@ export const CampaignsPage: React.FC = () => {
       objects: [
         {
           type: 'identity',
-          id: 'identity--aeigs-soc',
-          name: 'Aeigs Smart City CSIRT',
+          id: 'identity--aegis-soc',
+          name: 'Aegis Smart City CSIRT',
           identity_class: 'organization',
         },
         {
@@ -781,10 +781,10 @@ export const CampaignsPage: React.FC = () => {
         {
           type: 'campaign',
           id: `campaign--${crypto.randomUUID()}`,
-          name: `Aeigs Campaign ${activeCamp?.campaign_id}`,
+          name: `Aegis Campaign ${activeCamp?.campaign_id}`,
           confidence: activeCamp?.confidence === 'high' ? 85 : 60,
           description: activeCamp?.evidence_reasons.join('; '),
-          labels: [`risk:${activeCamp?.risk_level}`, 'iot-botnet', 'aeigs'],
+          labels: [`risk:${activeCamp?.risk_level}`, 'iot-botnet', 'aegis'],
         },
       ],
     }

@@ -880,7 +880,7 @@ export const LivingCityPage: React.FC = () => {
           Micro Sub-Bar (Matching Reference Layout)
           ======================================================================= */}
       <footer className="city-sub-footer-bar">
-        <span>AEIGS / SMART DISTRICT</span>
+        <span>AEGIS / SMART DISTRICT</span>
         <span>
           {systemHealth?.status === 'ok'
             ? 'LIVE TELEMETRY • 3D LIVING ENGINE ACTIVE'
