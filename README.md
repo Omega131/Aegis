@@ -37,27 +37,7 @@
 
 ## The Problem
 
-### The False Choice Between Safety and Human Dignity
-
-Every morning, millions of people walk down municipal streets—walking children to school, heading to medical clinics, meeting loved ones, or exercising their fundamental right to peaceful assembly. They do not think of themselves as telemetry or facial datasets.
-
-Yet modern smart cities have quietly forced an unfair trade-off: **to be safe, citizens must surrender their privacy.**
-
-Municipalities have deployed thousands of networked cameras and IoT sensors across public squares, transit lines, and neighborhoods. While intended to deter crime and speed up emergency response, conventional surveillance architectures suffer from four deeply human points of failure:
-
-1. **The Involuntary Panopticon**  
-   Standard municipal cameras broadcast live, high-resolution, unblurred facial imagery across public networks 24 hours a day. Anyone with network access—from contractors and operators to unauthorized intruders—can track ordinary citizens across town. The basic human dignity of walking through one's own community without being cataloged has been treated as acceptable collateral damage.
-
-2. **Fragile Guardians in Fragile Neighborhoods**  
-   The physical devices entrusted with community safety—traffic cameras, school zone monitors, and utility sensors—are notoriously fragile. Built on low-cost embedded Linux boards, riddled with default manufacturer passwords, and left unpatched, they are routinely hijacked by automated botnets. Instead of protecting public spaces, compromised cameras become open spyglasses inside them.
-
-3. **The Unchecked Power of the "All-or-Nothing" Switch**  
-   In today's control rooms, trust is an absolute light switch. A single login credential or administrative subpoena often grants unilateral power to unmask weeks of historical footage across an entire neighborhood. There is no friction, no judicial quorum, and no second person in the room. When the authority to strip away a citizen's privacy rests in the hands of a single individual, abuse of power and unauthorized surveillance become inevitable.
-
-4. **Defenders Fighting in the Dark**  
-   When hostile adversaries or state-sponsored intrusion sets probe municipal cameras, defenders are left playing a passive guessing game. Traditional firewalls merely drop packets, while standalone honeypots sit isolated in labs without deflecting attacks away from real infrastructure. Defenders have had no way to actively deceive intruders, study their techniques, and protect real physical camera feeds in real time.
-
-Aegis Mirage replaces this broken compromise with a fundamental civic principle: **privacy by default, transparency by cryptographic design, and active deception by necessity.**
+Smart cities force an unfair trade-off: to keep public spaces safe, everyday citizens must surrender their privacy. Thousands of fragile municipal cameras broadcast raw, unblurred facial streams over vulnerable networks, where a single compromised credential or rogue insider grants unchecked power to track anyone—turning public safety into an involuntary panopticon.
 
 ## Our Solution
 
