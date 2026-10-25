@@ -1208,144 +1208,180 @@ export const CampaignsPage: React.FC = () => {
                 {/* Nodes */}
                 <g
                   className={`graph-node ${selectedCampaignId === 'CMP-001' ? 'selected' : ''}`}
-                  onClick={() => setSelectedCampaignId('CMP-001')}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedCampaignId('CMP-001')
+                    setSelectedSessionId('sess-mirai-01')
+                  }}
                   transform="translate(200, 160)"
                 >
-                  <circle r="26" fill="#f59e0b" filter="url(#glow-campaign)" />
+                  <circle r="40" fill="transparent" className="node-hitbox" />
+                  <circle r="34" fill="none" className="node-selection-ring" />
+                  <circle r="26" fill="#f59e0b" className="node-core" filter="url(#glow-campaign)" />
                   <text y="4" textAnchor="middle" fill="#000" fontWeight="700" fontSize="10">
                     CMP-001
                   </text>
-                  <text y="40" textAnchor="middle" fill="#fbbf24" fontSize="11" fontWeight="600">
+                  <text y="42" textAnchor="middle" fill="#fbbf24" fontSize="11" fontWeight="600">
                     Mirai IoT Botnet
                   </text>
                 </g>
 
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-mirai-01' ? 'selected' : ''}`}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation()
                     setSelectedSessionId('sess-mirai-01')
                     setSelectedCampaignId('CMP-001')
                   }}
                   transform="translate(90, 80)"
                 >
-                  <circle r="18" fill="#f43f5e" filter="url(#glow-threat)" />
+                  <circle r="30" fill="transparent" className="node-hitbox" />
+                  <circle r="24" fill="none" className="node-selection-ring" />
+                  <circle r="18" fill="#f43f5e" className="node-core" filter="url(#glow-threat)" />
                   <text y="3" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="600">
                     S1
                   </text>
-                  <text y="28" textAnchor="middle" fill="#cbd5e1" fontSize="9">
+                  <text y="30" textAnchor="middle" fill="#cbd5e1" fontSize="9">
                     198.51.100.44
                   </text>
                 </g>
 
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-mirai-02' ? 'selected' : ''}`}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation()
                     setSelectedSessionId('sess-mirai-02')
                     setSelectedCampaignId('CMP-001')
                   }}
                   transform="translate(90, 240)"
                 >
-                  <circle r="18" fill="#f43f5e" filter="url(#glow-threat)" />
+                  <circle r="30" fill="transparent" className="node-hitbox" />
+                  <circle r="24" fill="none" className="node-selection-ring" />
+                  <circle r="18" fill="#f43f5e" className="node-core" filter="url(#glow-threat)" />
                   <text y="3" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="600">
                     S2
                   </text>
-                  <text y="28" textAnchor="middle" fill="#cbd5e1" fontSize="9">
+                  <text y="30" textAnchor="middle" fill="#cbd5e1" fontSize="9">
                     198.51.100.72
                   </text>
                 </g>
 
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-mirai-03-adapted' ? 'selected' : ''}`}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation()
                     setSelectedSessionId('sess-mirai-03-adapted')
                     setSelectedCampaignId('CMP-001')
                   }}
                   transform="translate(310, 100)"
                 >
-                  <circle r="17" fill="#38bdf8" filter="url(#glow-session)" />
+                  <circle r="30" fill="transparent" className="node-hitbox" />
+                  <circle r="23" fill="none" className="node-selection-ring" />
+                  <circle r="17" fill="#38bdf8" className="node-core" filter="url(#glow-session)" />
                   <text y="3" textAnchor="middle" fill="#000" fontSize="8" fontWeight="600">
                     S3
                   </text>
-                  <text y="28" textAnchor="middle" fill="#38bdf8" fontSize="9">
+                  <text y="30" textAnchor="middle" fill="#38bdf8" fontSize="9">
                     203.0.113.88 (Adapted)
                   </text>
                 </g>
 
                 <g
                   className={`graph-node ${selectedCampaignId === 'CMP-002' ? 'selected' : ''}`}
-                  onClick={() => setSelectedCampaignId('CMP-002')}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedCampaignId('CMP-002')
+                    setSelectedSessionId('sess-scada-01')
+                  }}
                   transform="translate(520, 280)"
                 >
-                  <circle r="26" fill="#f59e0b" filter="url(#glow-campaign)" />
+                  <circle r="40" fill="transparent" className="node-hitbox" />
+                  <circle r="34" fill="none" className="node-selection-ring" />
+                  <circle r="26" fill="#f59e0b" className="node-core" filter="url(#glow-campaign)" />
                   <text y="4" textAnchor="middle" fill="#000" fontWeight="700" fontSize="10">
                     CMP-002
                   </text>
-                  <text y="40" textAnchor="middle" fill="#fbbf24" fontSize="11" fontWeight="600">
+                  <text y="42" textAnchor="middle" fill="#fbbf24" fontSize="11" fontWeight="600">
                     Substation RTU Attack
                   </text>
                 </g>
 
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-scada-01' ? 'selected' : ''}`}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation()
                     setSelectedSessionId('sess-scada-01')
                     setSelectedCampaignId('CMP-002')
                   }}
                   transform="translate(440, 380)"
                 >
-                  <circle r="18" fill="#f43f5e" filter="url(#glow-threat)" />
+                  <circle r="30" fill="transparent" className="node-hitbox" />
+                  <circle r="24" fill="none" className="node-selection-ring" />
+                  <circle r="18" fill="#f43f5e" className="node-core" filter="url(#glow-threat)" />
                   <text y="3" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="600">
                     SC1
                   </text>
-                  <text y="28" textAnchor="middle" fill="#cbd5e1" fontSize="9">
+                  <text y="30" textAnchor="middle" fill="#cbd5e1" fontSize="9">
                     192.0.2.140
                   </text>
                 </g>
 
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-scada-02' ? 'selected' : ''}`}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation()
                     setSelectedSessionId('sess-scada-02')
                     setSelectedCampaignId('CMP-002')
                   }}
                   transform="translate(600, 380)"
                 >
-                  <circle r="18" fill="#f43f5e" filter="url(#glow-threat)" />
+                  <circle r="30" fill="transparent" className="node-hitbox" />
+                  <circle r="24" fill="none" className="node-selection-ring" />
+                  <circle r="18" fill="#f43f5e" className="node-core" filter="url(#glow-threat)" />
                   <text y="3" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="600">
                     SC2
                   </text>
-                  <text y="28" textAnchor="middle" fill="#cbd5e1" fontSize="9">
+                  <text y="30" textAnchor="middle" fill="#cbd5e1" fontSize="9">
                     192.0.2.141
                   </text>
                 </g>
 
                 <g
                   className={`graph-node ${selectedCampaignId === 'CMP-003' ? 'selected' : ''}`}
-                  onClick={() => setSelectedCampaignId('CMP-003')}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedCampaignId('CMP-003')
+                    setSelectedSessionId('sess-scanner-01')
+                  }}
                   transform="translate(480, 90)"
                 >
-                  <circle r="20" fill="#64748b" />
+                  <circle r="34" fill="transparent" className="node-hitbox" />
+                  <circle r="27" fill="none" className="node-selection-ring" />
+                  <circle r="20" fill="#64748b" className="node-core" />
                   <text y="4" textAnchor="middle" fill="#fff" fontWeight="700" fontSize="9">
                     CMP-003
                   </text>
-                  <text y="34" textAnchor="middle" fill="#94a3b8" fontSize="10">
+                  <text y="36" textAnchor="middle" fill="#94a3b8" fontSize="10">
                     Generic Scanner
                   </text>
                 </g>
 
                 <g
                   className={`graph-node ${selectedSessionId === 'sess-scanner-01' ? 'selected' : ''}`}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation()
                     setSelectedSessionId('sess-scanner-01')
                     setSelectedCampaignId('CMP-003')
                   }}
                   transform="translate(580, 100)"
                 >
-                  <circle r="15" fill="#38bdf8" filter="url(#glow-session)" />
+                  <circle r="28" fill="transparent" className="node-hitbox" />
+                  <circle r="21" fill="none" className="node-selection-ring" />
+                  <circle r="15" fill="#38bdf8" className="node-core" filter="url(#glow-session)" />
                   <text y="3" textAnchor="middle" fill="#000" fontSize="8">
                     SCN
                   </text>
-                  <text y="25" textAnchor="middle" fill="#94a3b8" fontSize="9">
+                  <text y="27" textAnchor="middle" fill="#94a3b8" fontSize="9">
                     198.51.100.44
                   </text>
                 </g>
