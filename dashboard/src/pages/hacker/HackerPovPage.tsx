@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import type { NavTab } from '../../shell'
 import './hacker.css'
+import { useApp } from '../../context/AppContext'
+import { StatCard } from '../../components/ui/StatCard'
+import { Badge } from '../../components/ui/Badge'
+import { CityMiniMap } from '../../components/ui/CityMiniMap'
+import { API_BASE } from '../../api/client'
 
 interface HackerPovPageProps {
   onNavigateTab: (tab: NavTab) => void
@@ -36,7 +41,6 @@ interface FetchEvidence {
   }
 }
 
-const API_BASE = 'http://localhost:8000'
 
 // -----------------------------------------------------------------------------
 // Authentic Decoy Filesystem Client Mirror (Identical to decoy.py VIRTUAL_FS)
@@ -118,6 +122,8 @@ const INITIAL_SSH_BANNER_LINES: TerminalLine[] = [
 ]
 
 export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) => {
+  const { setActiveTab: setAppActiveTab, addToast, setSelectedDevice } = useApp()
+
   // ---------------------------------------------------------------------------
   // State
   // ---------------------------------------------------------------------------
@@ -127,6 +133,29 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
   const [isActionPending, setIsActionPending] = useState<boolean>(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [fetchEvidence, setFetchEvidence] = useState<FetchEvidence | null>(null)
+
+  const navigateTo = (tab: 'city' | 'cameras' | 'decoy' | 'evidence' | 'campaigns') => {
+    if (tab === 'campaigns' || tab === 'evidence') {
+      setAppActiveTab('evidence')
+      onNavigateTab?.('campaigns' as any)
+    } else {
+      setAppActiveTab(tab)
+      onNavigateTab?.(tab as any)
+    }
+  }
+
+  const handleSelectCam = (cid: string) => {
+    setSelectedCam(cid)
+    setFrameTimestamp(Date.now())
+    const meta = getCamMeta(cid)
+    setSelectedDevice({
+      id: cid.toUpperCase(),
+      name: meta.name,
+      type: 'camera',
+      status: 'online',
+      district: 'City Mesh Ingress',
+    })
+  }
 
   // Decoy Session & Shell State
   const [sessionId] = useState<string>('sess-hacker-live-01')
@@ -242,6 +271,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
         setStatusMessage(`Blinding active on ${cam.id}`)
         setFrameTimestamp(Date.now())
         await fetchCameras()
+        addToast(
+          'Optical Sensor Saturated',
+          `Injected 850nm laser into ${cam.id}. Lens lux dropped 91.7%.`,
+          'danger'
+        )
       } else {
         appendTerminal(`[-] Blinding exploit rejected by sentry gateway (HTTP ${res.status})`, 'alert')
       }
@@ -272,6 +306,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
         setStatusMessage(`Buffer freeze active on ${cam.id}`)
         setFrameTimestamp(Date.now())
         await fetchCameras()
+        addToast(
+          'Buffer Loop Replay Injected',
+          `Duplicate H.264 I-Frames frozen on ${cam.id}. Static frame lock confirmed.`,
+          'danger'
+        )
       } else {
         appendTerminal(`[-] Frame freeze exploit rejected (HTTP ${res.status})`, 'alert')
       }
@@ -300,6 +339,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
         setStatusMessage(`Normal stream restored on ${cam.id}`)
         setFrameTimestamp(Date.now())
         await fetchCameras()
+        addToast(
+          'Sensor Exploit Withdrawn',
+          `Target ${cam.id} exposure calibrated and returned to live feed.`,
+          'success'
+        )
       }
     } catch (err: any) {
       appendTerminal(`[-] Recovery beacon transmission error: ${err.message}`, 'alert')
@@ -343,6 +387,12 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
           security_verdict: 'ATTACK BLOCKED: Zero raw frames stored. Encrypted crops require 2-of-3 Shamir quorum.',
         }
       }
+
+      addToast(
+        'Zero-Raw Safeguard Active',
+        'Attempted footage dump blocked (403). Encrypted crops require Shamir quorum.',
+        'review'
+      )
 
       const escrowRes = await fetch(
         `${API_BASE}/escrow/attempt-unauthorized?camera_id=${selectedCam}&operator_id=attacker-ip-194.26.29.112`,
@@ -397,6 +447,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
       appendTerminal(`2222/tcp OPEN  ssh      AegisOS SmartCam SSH Service (Dropbear / AsyncSSH)`, 'green')
       appendTerminal(``, 'dim')
       appendTerminal(`[+] Recon Complete: 1 viable SSH target discovered on port 2222.`, 'green')
+      addToast(
+        'Stealth SYN Recon Sweep',
+        'Port sweep across smart city sentry cameras completed.',
+        'review'
+      )
       setIsActionPending(false)
     }, 600)
   }
@@ -436,6 +491,12 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
           appendTerminal(``, 'dim')
           appendTerminal(`root@aegis-cam:~# uname -a`, 'cmd')
           appendTerminal(data.output || 'Linux aegis-smartcam-01 5.10.0-arm64 #1 PREEMPT aarch64 GNU/Linux\n', 'output')
+
+          addToast(
+            'Credential Stuffing Trapped',
+            'Default IoT dictionary credentials redirected to Phantom Twin sandbox.',
+            'deception'
+          )
         }
       } catch {
         appendTerminal(`[+] Connected to decoy shell on 192.168.1.50:2222`, 'green')
@@ -478,6 +539,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
         appendTerminal(`Connected to remote host... File saved to /tmp/bot.`, 'output')
         appendTerminal(`[+] Downloaded 64,812 bytes -> Staged at /tmp/bot`, 'dim')
         appendTerminal(`[+] File hash computed: SHA-256 ${data.sha256.substring(0, 32)}...`, 'dim')
+        addToast(
+          'Mirai Malware Quarantined',
+          'ARM7 payload captured, SHA-256 computed, C2 extracted.',
+          'deception'
+        )
       } else {
         appendTerminal(`Connected to remote host... File saved to /tmp/bot.`, 'output')
       }
@@ -512,6 +578,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
 
         const output = data.output || RICKROLL_PAYLOAD_DECOY
         appendTerminal(output, 'rickroll')
+        addToast(
+          'Honeytoken Tripped!',
+          'Bait credentials.conf accessed! Rickroll deployed & Hostility > 8.0.',
+          'danger'
+        )
       } else {
         setHoneytokenTripped(true)
         setHostilityScore(9.8)
@@ -541,6 +612,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
       appendTerminal(`[!] MODBUS FRAME DISPATCHED TO SUBSTATION RTU GATEWAY.`, 'alert')
       appendTerminal(`[!] BLAST-RADIUS MULTIPLIER ASSERTED: Substation RTU Tier -> 3.5x Asset Criticality!`, 'alert')
       appendTerminal(`[*] Grid Protection Active: Command sinked to synthetic SCADA honeypot. Real breakers safe.`, 'green')
+      addToast(
+        'SCADA Breaker Trip Attempted',
+        'Modbus coil trip sinks to synthetic SCADA honeypot. Real breakers safe.',
+        'danger'
+      )
       setIsActionPending(false)
     }, 600)
   }
@@ -560,6 +636,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
       appendTerminal(`[*] New egress IP active: 203.0.113.88`, 'dim')
       appendTerminal(`[*] Re-establishing C2 beacon to 185.220.101.5:8080 (Matches previous campaign CMP-001).`, 'amber')
       appendTerminal(`[+] Threat Clustering Engine: Connected components graph linked rotated IP 203.0.113.88 -> Campaign CMP-001!`, 'cyan')
+      addToast(
+        'Attacker Rotated Egress IP',
+        'Threat clustering graph linked rotated IP 203.0.113.88 via shared C2.',
+        'review'
+      )
       setIsActionPending(false)
     }, 700)
   }
@@ -580,6 +661,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
       appendTerminal(`[-] Attacker attempted break-glass unlock -> BLOCKED (403 Forbidden).`, 'alert')
       appendTerminal(`[*] Cryptographic Audit: Tamper-evident entry appended: Zero hostility -> Unmask rejected.`, 'green')
       setStatusMessage(`Drill A Initialized: Zero honeypot hostility -> Unmasking blocked!`)
+      addToast(
+        'Drill A Initialized',
+        'False positive safeguard active: Zero hostility prevents break-glass unmask.',
+        'success'
+      )
     } catch (err: any) {
       appendTerminal(`[-] Drill A execution error: ${err.message}`, 'alert')
     } finally {
@@ -601,6 +687,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
       appendTerminal(`[*] Shamir 2-of-3 Secret Sharing: Judicial authority approval already cast.`, 'cyan')
       appendTerminal(`[+] Case awaiting 2nd custodian signature (Forensics Officer) in Campaigns tab.`, 'green')
       setStatusMessage(`Drill B Active: Case CASE-2026-001 awaiting 2nd custodian vote!`)
+      addToast(
+        'Drill B Initialized',
+        'Honeypot breached & honeytoken tripped. Case CASE-2026-001 opened for Shamir quorum.',
+        'danger'
+      )
     } catch (err: any) {
       appendTerminal(`[-] Drill B execution error: ${err.message}`, 'alert')
     } finally {
@@ -618,6 +709,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
       appendTerminal(`[+] Graph Clustering Engine resolved adapted attacker IP rotation via shared C2 address!`, 'green')
       appendTerminal(`[+] Threat graph clustered into 3 distinct campaigns with plain-language evidence.`, 'cyan')
       setStatusMessage(`Drill C Active: Campaign graph clustered with plain-language evidence!`)
+      addToast(
+        'Drill C Initialized',
+        'Multi-group threat clustering active: Correlated attacker rotation via C2.',
+        'review'
+      )
     } catch (err: any) {
       appendTerminal(`[-] Drill C execution error: ${err.message}`, 'alert')
     } finally {
@@ -636,6 +732,11 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
         appendTerminal(`[+] City B (Cyber-Bengaluru) sensor node read contract event ThreatRegistered.`, 'cyan')
         appendTerminal(`[!] City B pre-emptively blacklisted C2 IP before any attack packet hit their sentries!`, 'alert')
         setStatusMessage(`Cross-city defense verified: Threat neutralized pre-emptively!`)
+        addToast(
+          'Cross-City Federation',
+          'Threat hash broadcast on smart contract. City B pre-emptively immunized.',
+          'production'
+        )
       }
     } catch (err: any) {
       appendTerminal(`[-] Federation execution error: ${err.message}`, 'alert')
@@ -863,7 +964,7 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
             <div className="hud-meta">
               <h2>
                 <span>Hacker POV — Red Team Attack Pod</span>
-                <span className="badge-crimson">LIVE EXPLOIT CONSOLE</span>
+                <Badge variant="danger">LIVE EXPLOIT CONSOLE</Badge>
               </h2>
               <div className="hud-meta-details">
                 <span><strong>Origin:</strong> {attackerIp}</span>
@@ -874,52 +975,61 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
               </div>
             </div>
           </div>
+        </div>
 
-          <div className="hud-stats-bar">
-            <div className="hud-stat-pill">
-              <span className="label">Exploit Status</span>
-              <span className="val" style={{ color: '#fb7185' }}>ARMED &amp; ACTIVE</span>
-            </div>
-            <div className="hud-stat-pill">
-              <span className="label">Target Sentry</span>
-              <span className="val" style={{ color: '#38bdf8' }}>{selectedCam.toUpperCase()}</span>
-            </div>
-            <div className="hud-stat-pill">
-              <span className="label">Defense Mode</span>
-              <span className="val" style={{ color: '#34d399' }}>ZERO RAW INGESTION</span>
-            </div>
-          </div>
+        {/* Integrated StatCards */}
+        <div className="hud-stats-grid">
+          <StatCard
+            label="Exploit Pod Status"
+            value="ARMED & ACTIVE"
+            subtitle="Red Team Console"
+            variant="danger"
+            icon="⚡"
+          />
+          <StatCard
+            label="Target Camera Node"
+            value={selectedCam.toUpperCase()}
+            subtitle={getCamMeta(selectedCam).name}
+            variant="review"
+            icon="📷"
+          />
+          <StatCard
+            label="Defense Safeguard"
+            value="ZERO RAW INGEST"
+            subtitle="Hardware YuNet Blur"
+            variant="success"
+            icon="🛡️"
+          />
+          <StatCard
+            label="Decoy Routing"
+            value={honeytokenTripped ? "STICKY QUARANTINE" : "DECOY TRAPPED"}
+            subtitle={`Hostility: ${hostilityScore.toFixed(1)} / 10`}
+            variant="deception"
+            icon="🪤"
+          />
         </div>
 
         {/* Cross-Tab Jump Bar */}
         <div className="hud-nav-links">
-          <span className="hud-nav-title">Inspect Impact Across Tabs:</span>
-          <button type="button" className="btn-jump-tab" onClick={() => onNavigateTab('cameras')}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-              <circle cx="12" cy="13" r="4" />
-            </svg>
-            <span>View Cameras Tab (Feed &amp; Health)</span>
+          <span className="hud-nav-title">Inspect Live Impact Across System:</span>
+          <button type="button" className="btn-jump-tab" onClick={() => navigateTo('city')}>
+            <span>🏙️</span>
+            <span>Living City Observatory</span>
           </button>
-          <button type="button" className="btn-jump-tab" onClick={() => onNavigateTab('decoy')}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-              <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-              <line x1="6" y1="6" x2="6.01" y2="6" />
-              <line x1="6" y1="18" x2="6.01" y2="18" />
-            </svg>
-            <span>View Decoy Tab (Keystrokes &amp; Traps)</span>
+          <button type="button" className="btn-jump-tab" onClick={() => navigateTo('cameras')}>
+            <span>📷</span>
+            <span>Edge Sentry Cameras</span>
           </button>
-          <button type="button" className="btn-jump-tab" onClick={() => onNavigateTab('campaigns')}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            <span>View Campaigns Tab (Graph &amp; Quorum)</span>
+          <button type="button" className="btn-jump-tab" onClick={() => navigateTo('decoy')}>
+            <span>🪤</span>
+            <span>Phantom Twin Decoy</span>
+          </button>
+          <button type="button" className="btn-jump-tab" onClick={() => navigateTo('evidence')}>
+            <span>🛡️</span>
+            <span>Threat Intel &amp; Quorum</span>
           </button>
           {statusMessage && (
-            <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#fbbf24', marginLeft: 'auto' }}>
+            <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--accent-review)', marginLeft: 'auto', fontWeight: 600 }}>
               {statusMessage}
             </span>
           )}
@@ -952,10 +1062,7 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
                       key={cid}
                       type="button"
                       className={`btn-cam-select ${selectedCam === cid ? 'active' : ''}`}
-                      onClick={() => {
-                        setSelectedCam(cid)
-                        setFrameTimestamp(Date.now())
-                      }}
+                      onClick={() => handleSelectCam(cid)}
                     >
                       {cid.toUpperCase()}
                       {node?.status === 'anomaly' && ' ⚠️'}
@@ -1082,6 +1189,9 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
                 )}
               </div>
             )}
+
+            {/* Integrated Smart City Mesh Topology Locator */}
+            <CityMiniMap highlightDeviceId={selectedCam === 'cam_01' ? 'CAM-01' : undefined} />
           </div>
         </div>
 
@@ -1128,7 +1238,7 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
                     <span className="script-desc">
                       Stuffs default camera passwords (`admin:admin`, `root:123456`) &rarr; Trapped in Decoy!
                     </span>
-                    <span className="script-target-link" onClick={() => onNavigateTab('decoy')} style={{ cursor: 'pointer' }}>
+                    <span className="script-target-link" onClick={() => navigateTo('decoy')}>
                       👉 View Decoy Keystroke Mirror
                     </span>
                   </div>
@@ -1163,7 +1273,7 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
                     <span className="script-desc">
                       Touches bait `credentials.conf` &rarr; Rickroll reverse payload + hostility score &gt; 8.0!
                     </span>
-                    <span className="script-target-link" onClick={() => onNavigateTab('campaigns')} style={{ cursor: 'pointer' }}>
+                    <span className="script-target-link" onClick={() => navigateTo('evidence')}>
                       👉 View Shamir Quorum Unlock Case
                     </span>
                   </div>
@@ -1198,7 +1308,7 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
                     <span className="script-desc">
                       Rotates IP to 203.0.113.88 with reused C2 &rarr; Intel engine correlates via C2!
                     </span>
-                    <span className="script-target-link" onClick={() => onNavigateTab('campaigns')} style={{ cursor: 'pointer' }}>
+                    <span className="script-target-link" onClick={() => navigateTo('evidence')}>
                       👉 View Graph Clustering
                     </span>
                   </div>
@@ -1238,7 +1348,7 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
                     <button type="button" className="btn-launch-drill" onClick={handleLaunchDrillA} disabled={isActionPending}>
                       Run Drill A
                     </button>
-                    <button type="button" className="btn-jump-tab" onClick={() => onNavigateTab('campaigns')}>
+                    <button type="button" className="btn-jump-tab" onClick={() => navigateTo('evidence')}>
                       Inspect Audit Chain →
                     </button>
                   </div>
@@ -1258,7 +1368,7 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
                     <button type="button" className="btn-launch-drill" onClick={handleLaunchDrillB} disabled={isActionPending}>
                       Run Drill B
                     </button>
-                    <button type="button" className="btn-jump-tab" onClick={() => onNavigateTab('campaigns')}>
+                    <button type="button" className="btn-jump-tab" onClick={() => navigateTo('evidence')}>
                       Vote in Quorum →
                     </button>
                   </div>
@@ -1278,7 +1388,7 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
                     <button type="button" className="btn-launch-drill" onClick={handleLaunchDrillC} disabled={isActionPending}>
                       Run Drill C
                     </button>
-                    <button type="button" className="btn-jump-tab" onClick={() => onNavigateTab('campaigns')}>
+                    <button type="button" className="btn-jump-tab" onClick={() => navigateTo('evidence')}>
                       View Cluster Graph →
                     </button>
                   </div>
@@ -1298,7 +1408,7 @@ export const HackerPovPage: React.FC<HackerPovPageProps> = ({ onNavigateTab }) =
                     <button type="button" className="btn-launch-drill" onClick={handleLaunchFederation} disabled={isActionPending}>
                       Simulate City B
                     </button>
-                    <button type="button" className="btn-jump-tab" onClick={() => onNavigateTab('campaigns')}>
+                    <button type="button" className="btn-jump-tab" onClick={() => navigateTo('evidence')}>
                       Inspect Registry →
                     </button>
                   </div>
