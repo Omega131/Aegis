@@ -113,27 +113,9 @@ flowchart TB
 
 # Demo & Deployment
 
-| Interface / Service | Endpoint / Command | Description |
-| :--- | :--- | :--- |
-| **Analyst Web Dashboard** | `http://localhost:5173` | React 18 + Three.js 3D City Diorama, live blurred RTSP feeds, and multi-custodian quorum voting. |
-| **Hacker's POV Terminal** | `http://localhost:5173/hacker` | Interactive adversary console with live Exploit Arsenal, reverse shells, and honeypot interaction. |
-| **FastAPI REST API & Docs** | `http://127.0.0.1:8000/docs` | Interactive Swagger UI for edge camera streaming, gateway telemetry, and escrow audit endpoints. |
-| **AsyncSSH Honeypot Daemon** | `ssh -p 2222 root@127.0.0.1` | High-interaction decoy environment equipped with armed `/etc/camera/credentials.conf` honeytokens. |
-| **Docker Compose Deployment** | `docker compose up --build` | Hardened, least-privilege container running as a non-root unprivileged service. |
+Live Deployment: [Aegis_live](https://aegis-tlue.onrender.com/)
 
-### Quick Start: Live Demo in 60 Seconds
 
-```bash
-# 1. Start the Unified Backend (API, Gateway & Decoy Daemons)
-.\venv\Scripts\Activate.ps1
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
-
-# 2. In a separate terminal, launch the Analyst Dashboard
-cd dashboard
-npm install
-npm run dev
-```
-Open **`http://localhost:5173`** to access the live dashboard, explore the 3D diorama, and run attacks through the Hacker's POV.
 
 ## The Problem
 
@@ -284,6 +266,18 @@ Aegis/
 ├── requirements.txt            # Python dependencies
 └── README.md
 ```
+
+## Cloud Deployment (Render.com)
+
+Aegis includes a pre-configured `render.yaml` Blueprint and multi-stage `Dockerfile` that packages both the Vite React dashboard and the FastAPI computer vision backend into a single unified cloud container.
+
+### 1-Click Blueprint Deployment:
+1. Push this repository to GitHub (`main` branch).
+2. Go to your [Render Dashboard](https://dashboard.render.com).
+3. Click **New +** &rarr; **Blueprint**.
+4. Connect your `Aegis` repository and click **Apply**.
+5. Render will automatically execute the multi-stage build (compiling the React frontend bundle and configuring the FastAPI vision backend with native system libraries).
+6. When deployment completes, open your live URL (e.g. `https://aegismirage.onrender.com/`) to view the operational dashboard!
 
 ## License
 

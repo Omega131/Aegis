@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
+import { API_BASE } from '../../api/client'
 import './CampaignsPage.css'
 
 // =============================================================================
@@ -445,31 +446,31 @@ export const CampaignsPage: React.FC = () => {
   // Load backend data if available
   const loadBackendData = async () => {
     try {
-      const campRes = await fetch('http://localhost:8000/intel/campaigns', { signal: AbortSignal.timeout(1500) })
+      const campRes = await fetch(`${API_BASE}/intel/campaigns`, { signal: AbortSignal.timeout(1500) })
       if (campRes.ok) {
         const data = await campRes.json()
         if (Array.isArray(data) && data.length > 0) setCampaigns(data)
       }
 
-      const caseRes = await fetch('http://localhost:8000/escrow/cases', { signal: AbortSignal.timeout(1500) })
+      const caseRes = await fetch(`${API_BASE}/escrow/cases`, { signal: AbortSignal.timeout(1500) })
       if (caseRes.ok) {
         const data = await caseRes.json()
         if (Array.isArray(data) && data.length > 0) setCases(data)
       }
 
-      const auditRes = await fetch('http://localhost:8000/escrow/audit-log', { signal: AbortSignal.timeout(1500) })
+      const auditRes = await fetch(`${API_BASE}/escrow/audit-log`, { signal: AbortSignal.timeout(1500) })
       if (auditRes.ok) {
         const data = await auditRes.json()
         if (Array.isArray(data) && data.length > 0) setAuditLogs(data)
       }
 
-      const custRes = await fetch('http://localhost:8000/escrow/custodians', { signal: AbortSignal.timeout(1500) })
+      const custRes = await fetch(`${API_BASE}/escrow/custodians`, { signal: AbortSignal.timeout(1500) })
       if (custRes.ok) {
         const data = await custRes.json()
         if (Array.isArray(data) && data.length > 0) setCustodians(data)
       }
 
-      const sessRes = await fetch('http://localhost:8000/intel/sessions', { signal: AbortSignal.timeout(1500) })
+      const sessRes = await fetch(`${API_BASE}/intel/sessions`, { signal: AbortSignal.timeout(1500) })
       if (sessRes.ok) {
         const sessList = await sessRes.json()
         if (Array.isArray(sessList) && sessList.length > 0) {
@@ -481,7 +482,7 @@ export const CampaignsPage: React.FC = () => {
         }
       }
 
-      const fedRes = await fetch('http://localhost:8000/intel/federation/registry', { signal: AbortSignal.timeout(1500) })
+      const fedRes = await fetch(`${API_BASE}/intel/federation/registry`, { signal: AbortSignal.timeout(1500) })
       if (fedRes.ok) {
         const fedData = await fedRes.json()
         if (fedData?.records) setFederatedRecords(fedData.records)
@@ -504,7 +505,7 @@ export const CampaignsPage: React.FC = () => {
   // =========================================================================
   const handleRunDrillA = async () => {
     try {
-      const res = await fetch('http://localhost:8000/escrow/attempt-unauthorized', {
+      const res = await fetch(`${API_BASE}/escrow/attempt-unauthorized`, {
         method: 'POST',
         signal: AbortSignal.timeout(2000),
       })
@@ -541,7 +542,7 @@ export const CampaignsPage: React.FC = () => {
 
   const handleRunDrillB = async () => {
     try {
-      await fetch('http://localhost:8000/intel/drill/drill-b', { method: 'POST', signal: AbortSignal.timeout(1500) })
+      await fetch(`${API_BASE}/intel/drill/drill-b`, { method: 'POST', signal: AbortSignal.timeout(1500) })
     } catch {
       // continue
     }
@@ -556,7 +557,7 @@ export const CampaignsPage: React.FC = () => {
 
   const handleRunDrillC = async () => {
     try {
-      await fetch('http://localhost:8000/intel/drill/drill-c', { method: 'POST', signal: AbortSignal.timeout(1500) })
+      await fetch(`${API_BASE}/intel/drill/drill-c`, { method: 'POST', signal: AbortSignal.timeout(1500) })
       await loadBackendData()
     } catch {
       // continue
@@ -572,8 +573,8 @@ export const CampaignsPage: React.FC = () => {
 
   const handleReset = async () => {
     try {
-      await fetch('http://localhost:8000/intel/reset', { method: 'POST', signal: AbortSignal.timeout(1500) })
-      await fetch('http://localhost:8000/escrow/reset', { method: 'POST', signal: AbortSignal.timeout(1500) })
+      await fetch(`${API_BASE}/intel/reset`, { method: 'POST', signal: AbortSignal.timeout(1500) })
+      await fetch(`${API_BASE}/escrow/reset`, { method: 'POST', signal: AbortSignal.timeout(1500) })
       await loadBackendData()
     } catch {
       setCampaigns(FALLBACK_CAMPAIGNS)
@@ -586,10 +587,9 @@ export const CampaignsPage: React.FC = () => {
     setRevealedFootageKey(null)
   }
 
-  // Voting Handler
   const handleVote = async (custodianId: string, decision: 'approve' | 'deny') => {
     try {
-      const res = await fetch(`http://localhost:8000/escrow/cases/${selectedCaseId}/vote`, {
+      const res = await fetch(`${API_BASE}/escrow/cases/${selectedCaseId}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -651,7 +651,7 @@ export const CampaignsPage: React.FC = () => {
   const handleVerifyAuditChain = async () => {
     setIsVerifyingChain(true)
     try {
-      const res = await fetch('http://localhost:8000/escrow/audit-log/verify', { signal: AbortSignal.timeout(2000) })
+      const res = await fetch(`${API_BASE}/escrow/audit-log/verify`, { signal: AbortSignal.timeout(2000) })
       if (res.ok) {
         const data = await res.json()
         setAuditVerified(data.valid)
@@ -672,7 +672,7 @@ export const CampaignsPage: React.FC = () => {
   // Cross-City Federation Handlers
   const handlePublishToFederation = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/intel/federation/publish/${selectedCampaignId}`, {
+      const res = await fetch(`${API_BASE}/intel/federation/publish/${selectedCampaignId}`, {
         method: 'POST',
         signal: AbortSignal.timeout(2000),
       })
@@ -712,7 +712,7 @@ export const CampaignsPage: React.FC = () => {
 
   const handleSimulateCityBAttack = async () => {
     try {
-      const res = await fetch('http://localhost:8000/intel/federation/simulate-city-b-attack', {
+      const res = await fetch(`${API_BASE}/intel/federation/simulate-city-b-attack`, {
         method: 'POST',
         signal: AbortSignal.timeout(2000),
       })
@@ -750,7 +750,7 @@ export const CampaignsPage: React.FC = () => {
   // STIX 2.1 View / Download Handler
   const handleOpenSTIX = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/intel/export/stix/${selectedCampaignId}`, { signal: AbortSignal.timeout(1500) })
+      const res = await fetch(`${API_BASE}/intel/export/stix/${selectedCampaignId}`, { signal: AbortSignal.timeout(1500) })
       if (res.ok) {
         const data = await res.json()
         setStixContent(JSON.stringify(data, null, 2))
@@ -810,13 +810,13 @@ export const CampaignsPage: React.FC = () => {
   const loadCaseFootage = async (caseId: string) => {
     setIsFootageLoading(true)
     try {
-      const caseDetailRes = await fetch(`http://localhost:8000/escrow/cases/${caseId}`, { signal: AbortSignal.timeout(2000) })
+      const caseDetailRes = await fetch(`${API_BASE}/escrow/cases/${caseId}`, { signal: AbortSignal.timeout(2000) })
       if (caseDetailRes.ok) {
         const detailData = await caseDetailRes.json()
         if (detailData.unlocked_key) setRevealedFootageKey(detailData.unlocked_key)
       }
 
-      const res = await fetch(`http://localhost:8000/escrow/cases/${caseId}/footage`, { signal: AbortSignal.timeout(3000) })
+      const res = await fetch(`${API_BASE}/escrow/cases/${caseId}/footage`, { signal: AbortSignal.timeout(3000) })
       if (res.ok) {
         const data: CaseFootageResponse = await res.json()
         setCaseFootage(data)
@@ -853,7 +853,7 @@ export const CampaignsPage: React.FC = () => {
   const handleCaptureLiveFrame = async (caseId: string) => {
     setIsCapturingLive(true)
     try {
-      const res = await fetch(`http://localhost:8000/escrow/cases/${caseId}/capture-live`, {
+      const res = await fetch(`${API_BASE}/escrow/cases/${caseId}/capture-live`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       })
@@ -913,7 +913,7 @@ export const CampaignsPage: React.FC = () => {
     }
 
     try {
-      const res = await fetch('http://localhost:8000/escrow/cases', {
+      const res = await fetch(`${API_BASE}/escrow/cases`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1699,7 +1699,7 @@ export const CampaignsPage: React.FC = () => {
 
                       <div className="crop-image-viewport">
                         <img
-                          src={`http://localhost:8000/api/cameras/${
+                          src={`${API_BASE}/api/cameras/${
                             activeCase.camera_id?.toLowerCase().includes('04')
                               ? 'cam_04'
                               : activeCase.camera_id?.toLowerCase().includes('02')

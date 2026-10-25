@@ -1,0 +1,26 @@
+# Version control
+.git
+.gitignore
+
+# Python virtual environment and bytecode
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node dependencies and build artifacts
+dashboard/node_modules/
+dashboard/dist/
+
+# Local databases and runtime state
+aegismirage.db
+edge_storage/
+quarantine/
+*.log
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

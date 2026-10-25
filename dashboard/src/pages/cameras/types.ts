@@ -4,7 +4,7 @@
  */
 
 // Centralized backend API base URL
-export const API_BASE = 'http://localhost:8000'
+export { API_BASE } from '../../api/client'
 
 export type CameraStatus = 'running' | 'stopped' | 'anomaly'
 export type CameraHealth = 'healthy' | 'warning' | 'offline'

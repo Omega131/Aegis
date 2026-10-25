@@ -1,4 +1,5 @@
 import React from 'react';
+import { API_BASE } from '../../api/client';
 import { useApp, type NavRoute } from '../../context/AppContext';
 
 const ROUTE_LABELS: Record<NavRoute, { title: string; icon: string }> = {
@@ -141,7 +142,7 @@ export const AppContextBar: React.FC = () => {
             color: 'var(--accent-production)',
           }}
         >
-          LIVE BACKEND: 127.0.0.1:8000
+          BACKEND: {API_BASE.replace(/^https?:\/\//, '')}
         </span>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api } from '../../api/client';
+import { api, API_BASE } from '../../api/client';
 import { useApp } from '../../context/AppContext';
 import { Badge } from '../../components/ui/Badge';
 import { StatCard } from '../../components/ui/StatCard';
@@ -36,7 +36,7 @@ export const SettingsPage: React.FC = () => {
   const handleResetGateway = async () => {
     setIsResetting(true);
     try {
-      await fetch('http://localhost:8000/api/gateway/reset', { method: 'POST' });
+      await fetch(`${API_BASE}/api/gateway/reset`, { method: 'POST' });
       addToast('Gateway Reset', 'Perimeter routing decisions and tracking table cleared', 'deception');
     } catch (err: any) {
       addToast('Reset Error', err.message, 'danger');

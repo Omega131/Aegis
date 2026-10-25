@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { API_BASE } from '../../api/client'
 import './decoy.css'
 
 // =============================================================================
@@ -62,11 +63,7 @@ export interface OperatorTelemetryPayload {
   epistemic_disclaimer?: string
 }
 
-// Configurable API base (Vite environment variable or default local backend)
-const API_BASE =
-  (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_API_URL as string)) ||
-  (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_API_BASE_URL as string)) ||
-  'http://localhost:8000'
+
 
 // =============================================================================
 // Explicit Development Seed Fixtures (Restricted to Offline Development/Demo)
