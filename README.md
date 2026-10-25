@@ -10,6 +10,7 @@
 <summary style="font-size: 24px; font-weight: bold; cursor: pointer;"><h1>Table of Contents</h1></summary>
 
 - [Architecture Overview](#architecture-overview)
+- [Demo & Deployment](#demo--deployment)
 - [The Problem](#the-problem)
 - [Our Solution](#our-solution)
 - [What gets stored on the edge & server?](#what-gets-stored-on-the-edge--server)
@@ -109,6 +110,30 @@ flowchart TB
         DASH -->|"Monitor Sandbox"| HoneypotLayer
     end
 ```
+
+# Demo & Deployment
+
+| Interface / Service | Endpoint / Command | Description |
+| :--- | :--- | :--- |
+| **Analyst Web Dashboard** | `http://localhost:5173` | React 18 + Three.js 3D City Diorama, live blurred RTSP feeds, and multi-custodian quorum voting. |
+| **Hacker's POV Terminal** | `http://localhost:5173/hacker` | Interactive adversary console with live Exploit Arsenal, reverse shells, and honeypot interaction. |
+| **FastAPI REST API & Docs** | `http://127.0.0.1:8000/docs` | Interactive Swagger UI for edge camera streaming, gateway telemetry, and escrow audit endpoints. |
+| **AsyncSSH Honeypot Daemon** | `ssh -p 2222 root@127.0.0.1` | High-interaction decoy environment equipped with armed `/etc/camera/credentials.conf` honeytokens. |
+| **Docker Compose Deployment** | `docker compose up --build` | Hardened, least-privilege container running as a non-root unprivileged service. |
+
+### Quick Start: Live Demo in 60 Seconds
+
+```bash
+# 1. Start the Unified Backend (API, Gateway & Decoy Daemons)
+.\venv\Scripts\Activate.ps1
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+
+# 2. In a separate terminal, launch the Analyst Dashboard
+cd dashboard
+npm install
+npm run dev
+```
+Open **`http://localhost:5173`** to access the live dashboard, explore the 3D diorama, and run attacks through the Hacker's POV.
 
 ## The Problem
 
