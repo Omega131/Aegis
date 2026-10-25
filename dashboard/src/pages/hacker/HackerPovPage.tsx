@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import type { NavTab } from '../../shell'
 import './hacker.css'
-import { useApp } from '../../context/AppContext'
+import { useApp, type NavRoute } from '../../context/AppContext'
 import { StatCard } from '../../components/ui/StatCard'
 import { Badge } from '../../components/ui/Badge'
 import { CityMiniMap } from '../../components/ui/CityMiniMap'
 import { API_BASE } from '../../api/client'
 
 interface HackerPovPageProps {
-  onNavigateTab: (tab: NavTab) => void
+  onNavigateTab: (tab: NavRoute) => void
 }
 
 interface CameraNodeInfo {
