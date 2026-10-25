@@ -16,3 +16,6 @@ services:
         value: "1"
       - key: AEGIS_START_SSH
         value: "0"
+      - key: VIDEO_SOURCE
+        value: "test_video.mp4"
+

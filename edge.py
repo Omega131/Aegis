@@ -54,6 +54,13 @@ NUM_NODES = 5
 # Time window duration in seconds (600 seconds = 10 minutes)
 WINDOW_SECONDS = 600
 
+# Local directory path used for storing encrypted crops and metadata
+# Anchored to BASE_DIR so it works reliably regardless of working directory
+STORAGE_DIR = os.path.join(BASE_DIR, "edge_storage")
+
+# Path to generated test video fallback
+TEST_VIDEO_FALLBACK = os.path.join(BASE_DIR, "test_video.mp4")
+
 # Path to a test video file (e.g., "test_video.mp4") or 0 for the default webcam
 # Can be configured via environment variable VIDEO_SOURCE (e.g. for headless servers or CI)
 _env_video_source = os.getenv("VIDEO_SOURCE")
@@ -63,14 +70,11 @@ if _env_video_source is not None:
     except ValueError:
         VIDEO_SOURCE = _env_video_source
 else:
-    VIDEO_SOURCE = 0
-
-# Local directory path used for storing encrypted crops and metadata
-# Anchored to BASE_DIR so it works reliably regardless of working directory
-STORAGE_DIR = os.path.join(BASE_DIR, "edge_storage")
-
-# Path to generated test video fallback
-TEST_VIDEO_FALLBACK = os.path.join(BASE_DIR, "test_video.mp4")
+    # On headless Linux cloud environments (e.g. Render/Docker), default to test_video.mp4 if no physical camera exists
+    if sys.platform.startswith("linux") and not os.path.exists("/dev/video0") and os.path.exists(TEST_VIDEO_FALLBACK):
+        VIDEO_SOURCE = TEST_VIDEO_FALLBACK
+    else:
+        VIDEO_SOURCE = 0
 
 # Rate limit for emitting 'face_blurred' events in seconds (prevents event flood)
 FACE_EVENT_RATE_LIMIT = 3.0
@@ -1204,11 +1208,18 @@ class CameraNode:
         try:
             # Each node opens its own capture instance of self.video_source
             try:
-                if isinstance(self.video_source, int) and sys.platform.startswith("win"):
-                    cap = cv2.VideoCapture(self.video_source, cv2.CAP_DSHOW)
+                if isinstance(self.video_source, int):
+                    if sys.platform.startswith("linux") and not os.path.exists(f"/dev/video{self.video_source}"):
+                        cap = None
+                        print(f"[*] Cloud/headless environment: /dev/video{self.video_source} not present. Using high-fidelity synthetic feed for {self.camera_id}.")
+                    elif sys.platform.startswith("win"):
+                        cap = cv2.VideoCapture(self.video_source, cv2.CAP_DSHOW)
+                    else:
+                        cap = cv2.VideoCapture(self.video_source)
                 else:
                     cap = cv2.VideoCapture(self.video_source)
-                if not cap.isOpened():
+
+                if cap is not None and not cap.isOpened():
                     print(f"[NODE-WARN] {self.camera_id} could not open source '{self.video_source}'. Using synthetic feed.")
             except Exception as exc:
                 print(f"[NODE-WARN] {self.camera_id} error opening video source ({exc}). Using synthetic feed.")
