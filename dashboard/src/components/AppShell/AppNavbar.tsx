@@ -58,6 +58,18 @@ export const AppNavbar: React.FC = () => {
         >
           <span>Threat Intel</span>
         </button>
+
+        <button
+          type="button"
+          id="nav-hacker"
+          className={`nav-tab-btn nav-item-hacker ${activeTab === 'hacker' ? 'active' : ''}`}
+          onClick={() => setActiveTab('hacker')}
+          title="Offensive Red Team Perspective & Exploit Simulation Console"
+        >
+          <span className="hacker-dot" aria-hidden="true" />
+          <span>Hacker POV</span>
+          <span className="nav-pill-red">Red Team</span>
+        </button>
       </nav>
 
       <div className="navbar-actions">

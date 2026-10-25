@@ -6,6 +6,8 @@ const ROUTE_LABELS: Record<NavRoute, { title: string; icon: string }> = {
   cameras: { title: 'Edge Sentry Camera Mesh', icon: '📷' },
   decoy: { title: 'Phantom Twin & Perimeter Gateway', icon: '🪤' },
   evidence: { title: 'Campaign Intelligence & Evidence', icon: '🛡️' },
+  campaigns: { title: 'Campaign Intelligence & Evidence', icon: '🛡️' },
+  hacker: { title: 'Offensive Red Team Terminal (Hacker POV)', icon: '🔴' },
   settings: { title: 'System Diagnostics & Runtime', icon: '⚙️' },
 };
 

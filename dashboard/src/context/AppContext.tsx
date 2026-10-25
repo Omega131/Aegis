@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api, type SystemHealth } from '../api/client';
 
-export type NavRoute = 'city' | 'cameras' | 'decoy' | 'evidence' | 'settings';
+export type NavRoute = 'city' | 'cameras' | 'decoy' | 'evidence' | 'campaigns' | 'settings' | 'hacker';
 
 export interface ToastMessage {
   id: string;

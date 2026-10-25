@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="A standalone Cities of the Future scroll narrative demo" />
+    <title>Cities of the Future — AegisMirage Concept</title>
+    <link rel="stylesheet" href="./cities-future-demo.css" />
+  </head>
+  <body>
+    <div class="city-demo">
+      <header class="city-nav">
+        <a class="city-brand" href="#top">
+          <span class="city-brand-mark">A</span>
+          <span><strong>AegisMirage</strong><small>CITIES OF THE FUTURE</small></span>
+        </a>
+        <div class="city-nav-status"><span></span> URBAN DEFENSE SYSTEM / DEMO</div>
+      </header>
+
+      <main id="top">
+        <section class="city-story" id="story">
+          <div class="story-sticky">
+            <div class="city-backdrop" aria-hidden="true">
+              <div class="sun-orb"></div>
+              <div class="moon-orb"></div>
+              <div class="sky-grid"></div>
+              <div class="city-skyline skyline-back"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="city-skyline skyline-mid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="city-skyline skyline-front"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="road-grid"></div>
+              <div class="transit-line line-one"></div>
+              <div class="transit-line line-two"></div>
+              <div class="drone drone-one">◇</div>
+              <div class="drone drone-two">◇</div>
+              <div class="city-haze"></div>
+            </div>
+
+            <div class="story-overlay">
+              <div class="story-progress"><span></span></div>
+              <div class="story-counter"><b>01</b><span>/ 05</span></div>
+
+              <article class="story-copy copy-one is-active">
+                <p class="story-kicker">A CITY THAT SEES</p>
+                <h1>Tomorrow<br /><em>has a pulse.</em></h1>
+                <p class="story-lede">Cities of the future are not passive skylines. They sense, adapt, and protect the people moving through them.</p>
+              </article>
+
+              <article class="story-copy copy-two">
+                <p class="story-kicker">THE LIVING PERIMETER</p>
+                <h2>Every street<br /><em>is a signal.</em></h2>
+                <p class="story-lede">AegisMirage connects the physical world to a privacy-first edge intelligence layer.</p>
+              </article>
+
+              <article class="story-copy copy-three">
+                <p class="story-kicker">PRIVACY AT THE EDGE</p>
+                <h2>Protect the person.<br /><em>Keep the pattern.</em></h2>
+                <p class="story-lede">Raw imagery never needs to leave the node. The city learns from protected events, not exposed identities.</p>
+              </article>
+
+              <article class="story-copy copy-four">
+                <p class="story-kicker">WHEN THE CITY SHIFTS</p>
+                <h2>Detect the change<br /><em>before the crowd does.</em></h2>
+                <p class="story-lede">Anomalies become visible as connected movement, not isolated alerts.</p>
+              </article>
+
+              <article class="story-copy copy-five">
+                <p class="story-kicker">THE NEXT CITY IS ALIVE</p>
+                <h2>Design for<br /><em>human futures.</em></h2>
+                <p class="story-lede">A calm, accountable layer for the places we build next.</p>
+                <a class="city-button" href="#system">Enter the system <span>↓</span></a>
+              </article>
+
+              <div class="city-metrics">
+                <div><b>24/7</b><span>EDGE AWARENESS</span></div>
+                <div><b>0 RAW</b><span>IDENTITY INGESTION</span></div>
+                <div><b>05</b><span>ACTIVE URBAN NODES</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="story-track" aria-label="Scroll through the city narrative">
+            <div class="story-step" data-scene="0"></div>
+            <div class="story-step" data-scene="1"></div>
+            <div class="story-step" data-scene="2"></div>
+            <div class="story-step" data-scene="3"></div>
+            <div class="story-step" data-scene="4"></div>
+          </div>
+        </section>
+
+        <section class="system-section" id="system">
+          <div class="system-shell">
+            <div class="system-heading">
+              <p class="story-kicker">THE URBAN SYSTEM / 06</p>
+              <h2>One city.<br /><em>Many layers of trust.</em></h2>
+              <p>After the cinematic story, the interface resolves into the operational language of AegisMirage.</p>
+            </div>
+            <div class="system-grid">
+              <article><span>01 / SENSE</span><strong>Edge camera mesh</strong><p>Distributed nodes observe the perimeter without centralizing raw feeds.</p></article>
+              <article><span>02 / PROTECT</span><strong>Privacy pipeline</strong><p>Faces are blurred locally and protected crops remain behind an escrow boundary.</p></article>
+              <article><span>03 / CORRELATE</span><strong>Campaign intelligence</strong><p>Events, decoys, and route decisions become one readable threat surface.</p></article>
+            </div>
+            <div class="system-footer"><span>AEGISMIRAGE / CITIES OF THE FUTURE</span><a href="#top">Back to horizon ↑</a></div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="./cities-future-demo.js"></script>
+  </body>
+</html>

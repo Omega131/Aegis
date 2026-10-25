@@ -5,9 +5,10 @@ import { CamerasPage } from './pages/cameras';
 import { DecoyPage } from './pages/decoy';
 import { CampaignsPage } from './pages/campaigns';
 import { SettingsPage } from './pages/settings';
+import { HackerPovPage } from './pages/hacker';
 
 function AppContent() {
-  const { activeTab } = useApp();
+  const { activeTab, setActiveTab } = useApp();
 
   const renderActiveRoute = () => {
     switch (activeTab) {
@@ -18,9 +19,12 @@ function AppContent() {
       case 'decoy':
         return <DecoyPage />;
       case 'evidence':
+      case 'campaigns':
         return <CampaignsPage />;
       case 'settings':
         return <SettingsPage />;
+      case 'hacker':
+        return <HackerPovPage onNavigateTab={setActiveTab} />;
       default:
         return <LivingCityPage />;
     }

@@ -442,7 +442,45 @@ code, kbd, samp, pre {
   font-size: 0.9rem;
 }
 
-.demo-env-indicator {
+.nav-item-hacker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.hacker-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #f43f5e;
+  box-shadow: 0 0 8px #f43f5e;
+  display: inline-block;
+  animation: pulse-danger 2s infinite;
+}
+
+.nav-pill-red {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(244, 63, 94, 0.2);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-sm);
+  margin-left: 0.25rem;
+}
+
+.nav-item-hacker.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.25), rgba(225, 29, 72, 0.35));
+  border-color: rgba(244, 63, 94, 0.6);
+  box-shadow: 0 0 16px rgba(244, 63, 94, 0.35);
+  font-weight: 600;
+}
+
+.demo-env-indicator,
+.status-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;

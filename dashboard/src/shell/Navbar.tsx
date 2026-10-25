@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api/client'
 
-export type NavTab = 'city' | 'console' | 'cameras' | 'decoy' | 'campaigns'
+export type NavTab = 'city' | 'console' | 'cameras' | 'decoy' | 'campaigns' | 'hacker'
 
 interface NavbarProps {
   activeTab: NavTab
@@ -92,6 +92,18 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
           onClick={() => onSelectTab('campaigns')}
         >
           <span className="nav-label">🛡️ Threat Intel</span>
+        </button>
+
+        <button
+          type="button"
+          id="nav-hacker"
+          className={`nav-item nav-item-hacker ${activeTab === 'hacker' ? 'active' : ''}`}
+          onClick={() => onSelectTab('hacker')}
+          title="Offensive Red Team Perspective & Exploit Simulation Console"
+        >
+          <span className="hacker-dot" aria-hidden="true" />
+          <span className="nav-label">Hacker POV</span>
+          <span className="nav-pill-red">Red Team</span>
         </button>
       </nav>
 
