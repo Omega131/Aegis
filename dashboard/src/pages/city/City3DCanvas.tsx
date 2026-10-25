@@ -339,19 +339,31 @@ export const City3DCanvas: React.FC<City3DCanvasProps> = ({
         poly([[L, y + h, B], [X, y + h, B], [X, y + h, Z], [L, y + h, Z]], colors[0], edge, 0.5);
       };
 
-      // 1. Clear & Atmospheric Gradient
-      const grad = ctx.createLinearGradient(0, 0, width, height);
+      // 1. Container-Free Viewport Clear (100% Transparent Background)
+      ctx.clearRect(0, 0, width, height);
+
+      // Atmospheric Ground Aura (Fades organically to transparent with zero box boundary)
+      const aura = ctx.createRadialGradient(
+        s.centerX,
+        s.centerY + 30 * s.scale,
+        15,
+        s.centerX,
+        s.centerY + 30 * s.scale,
+        360 * s.scale
+      );
       if (s.isDark) {
-        grad.addColorStop(0, '#0B130E');
-        grad.addColorStop(0.6, '#121F17');
-        grad.addColorStop(1, '#15251C');
+        aura.addColorStop(0, 'rgba(46, 204, 113, 0.08)');
+        aura.addColorStop(0.45, 'rgba(18, 31, 23, 0.03)');
+        aura.addColorStop(1, 'rgba(11, 18, 14, 0)');
       } else {
-        grad.addColorStop(0, '#F7FAF7');
-        grad.addColorStop(0.55, '#F0F7F1');
-        grad.addColorStop(1, '#E5F4E8');
+        aura.addColorStop(0, 'rgba(36, 107, 69, 0.06)');
+        aura.addColorStop(0.45, 'rgba(56, 161, 105, 0.02)');
+        aura.addColorStop(1, 'rgba(250, 253, 249, 0)');
       }
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = aura;
+      ctx.beginPath();
+      ctx.arc(s.centerX, s.centerY + 30 * s.scale, 360 * s.scale, 0, Math.PI * 2);
+      ctx.fill();
 
       // Atmospheric Ground Shadow (Anchors city firmly in 3D space)
       ctx.save();
@@ -856,7 +868,7 @@ export const City3DCanvas: React.FC<City3DCanvasProps> = ({
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'visible' }}>
       <canvas
         ref={canvasRef}
         style={{

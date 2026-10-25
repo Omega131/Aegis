@@ -217,37 +217,40 @@
   align-items: center;
   justify-content: center;
   width: 100%;
+  min-height: 580px;
 }
 
 .diorama-frame-wrapper {
   position: relative;
   width: 100%;
-  max-width: 1080px;
-  aspect-ratio: 16 / 9.2;
-  min-height: 520px;
-  border-radius: 28px;
-  overflow: hidden;
-  background-color: var(--bg-app);
+  min-height: 580px;
+  height: 100%;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
   user-select: none;
-  box-shadow: var(--shadow-md);
-  border: 1px solid var(--border-subtle);
-  perspective: 1200px;
+  box-shadow: none;
+  border: none;
+  perspective: 1400px;
   transition: all 360ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 [data-theme='dark'] .diorama-frame-wrapper {
-  box-shadow: 0 20px 48px -12px rgba(0, 0, 0, 0.65), 0 0 24px rgba(46, 204, 113, 0.12);
+  box-shadow: none;
+  border: none;
+  background: transparent;
 }
 
 .city-hero.theater-mode .diorama-frame-wrapper {
   max-width: 100%;
-  aspect-ratio: 16 / 8.5;
-  min-height: 640px;
-  box-shadow: var(--shadow-lg);
+  min-height: 720px;
+  box-shadow: none;
+  border: none;
+  background: transparent;
 }
 
 .diorama-frame-wrapper:hover {
-  box-shadow: var(--shadow-lg);
+  box-shadow: none;
 }
 
 .diorama-viewport {
@@ -259,6 +262,7 @@
   touch-action: none;
   transform-style: preserve-3d;
   transition: transform 120ms ease-out;
+  overflow: visible;
 }
 
 .diorama-viewport.dragging {
@@ -625,10 +629,12 @@
 .diorama-controls-pill {
   display: inline-flex;
   align-items: center;
-  background: var(--bg-surface);
+  background: var(--bg-surface-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-subtle);
   border-radius: 9999px;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   padding: 0.25rem 0.45rem;
   gap: 0.25rem;
 }
