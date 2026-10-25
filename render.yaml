@@ -1,0 +1,18 @@
+# =============================================================================
+# AegisMirage — Render Infrastructure as Code (Blueprint)
+# https://render.com/docs/blueprint-spec
+# =============================================================================
+
+services:
+  - type: web
+    name: aegismirage
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: AEGIS_START_SSH
+        value: "0"

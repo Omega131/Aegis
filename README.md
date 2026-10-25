@@ -285,6 +285,18 @@ Aegis/
 └── README.md
 ```
 
+## Cloud Deployment (Render.com)
+
+Aegis includes a pre-configured `render.yaml` Blueprint and multi-stage `Dockerfile` that packages both the Vite React dashboard and the FastAPI computer vision backend into a single unified cloud container.
+
+### 1-Click Blueprint Deployment:
+1. Push this repository to GitHub (`main` branch).
+2. Go to your [Render Dashboard](https://dashboard.render.com).
+3. Click **New +** &rarr; **Blueprint**.
+4. Connect your `Aegis` repository and click **Apply**.
+5. Render will automatically execute the multi-stage build (compiling the React frontend bundle and configuring the FastAPI vision backend with native system libraries).
+6. When deployment completes, open your live URL (e.g. `https://aegismirage.onrender.com/`) to view the operational dashboard!
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
